@@ -13,6 +13,9 @@ import pandas as pd
 import numpy as np
 from scipy.stats import genextreme
 
+# Set print
+verbose = True
+
 # Set house characteristics and discount rate
 sqft = 1000
 struc_value = 250000
@@ -22,11 +25,23 @@ disc_rate = np.full(shape=(life_span,), fill_value=0.04)
 bfe = 8
 # Initial house elev
 init_elev = bfe + del_elev
+if verbose: 
+    print("House parameters")
+    print(f"Structure value: ${struc_value}")
+    print(f"Lifetime: {life_span}")
+    print(f"Initial elevation: {init_elev} ft")
+    print(f"Base flood elevation: {bfe}")
+    print(f"Discount rate: {disc_rate}")
 
-# Set GEV parameters
-mu = 0
-sigma = 0
-xi = 0
+# Set GEV parameters [currently using GEV from Zarekarizi et al. 2020]
+mu = 19.8718901487264
+sigma = 3.16814792683425
+xi = 0.00515921024408503
+if verbose:
+    print("GEV parameters")
+    print(f"location: {mu}")
+    print(f"scale: {sigma}")
+    print(f"shape: {xi}")
 
 # Set elevation height strategies to evaluate
 delta_h_seq = np.array(0,3,4,5,6,7,8,9,10,11,12,13,14)
@@ -161,8 +176,10 @@ led = np.empty(len(delta_h_seq))
 cc = np.empty(len(delta_h_seq))
 lr = np.empty(len(delta_h_seq))
 sa = np.empty(len(delta_h_seq))
+
 # Iterate through strategies
 for i in range(len(delta_h_seq)):
+    if verbose: print(f"Evaluating strategy {i+1} of {len(delta_h_seq)}")
     # Step 1: lifetime expected damages
     led[i] = lifetime_expected_damages(struc_value, init_elev, delta_h_seq[i], life_span, 
                                     disc_rate, mu, sigma, xi, depth, damage_fac)
@@ -178,9 +195,8 @@ bcr_cost = cc
 bcr_benefit = led[0]-led
 bcr = bcr_cost / bcr_benefit
 
-
 # Find optimal strategy not considering uncertainty
-i_min = np.argmin(tc)   # can change to maximize BCR instead of minimize TC
+i_min = np.argmin(tc)       # can change to maximize BCR instead of minimize TC
 opt_h = delta_h_seq[i_min]  # optimal height
 opt_h_led = led[i_min]      # damages at optimal height
 opt_h_cc = cc[i_min]        # construction cost at opt h
@@ -189,3 +205,10 @@ opt_h_bcr = bcr[i_min]      # benefit-cost ratio at opt h
 opt_h_lr = lr[i_min]        # reliability at opt h
 # Step 6: satisficing
 opt_h_sa = satisficing_all(opt_h_bcr, opt_h_tc, struc_value)
+
+if verbose:
+    print(f"Optimal height without uncertainty: {opt_h}")
+    print(f"Total cost: {opt_h_tc}")
+    print(f"Benefit-cost ratio: {opt_h_bcr}")
+    print(f"Lifetime reliability: {opt_h_lr}")
+    print(f"Satisficing: {opt_h_sa}")
