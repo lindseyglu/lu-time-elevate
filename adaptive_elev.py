@@ -51,9 +51,9 @@ delta_h_seq = np.array(0,3,4,5,6,7,8,9,10,11,12,13,14)
 depth = np.array(-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)  # defined relative the FFE
 damage_fac = np.array(0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81)
 # Upper and lower bounds for sampling uncertainty
-damage_fac_ub = damage_fac + damage_fac*0.3
-damage_fac_lb = damage_fac - damage_fac*0.3
-damage_fac_ub[damage_fac_ub>100] = 100
+# damage_fac_ub = damage_fac + damage_fac*0.3
+# damage_fac_lb = damage_fac - damage_fac*0.3
+# damage_fac_ub[damage_fac_ub>100] = 100
 
 ## Total cost is lifetime expected damages + construction cost
 
@@ -62,16 +62,16 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     """
     Docstring for lifetime_expected_damages
     
-    :param struc_value: Description
-    :param init_elev: Description
-    :param delta_h: Description
+    :param struc_value: structure value
+    :param init_elev: initial house elevation
+    :param delta_h: height the house is being raised by
     :param life_span: house lifespan
     :param disc_rate: array of discount rates for each year of the house lifespan
-    :param mu: Description
-    :param sigma: Description
-    :param xi: Description
+    :param mu: location parameter for generalized extreme value (GEV) distribution
+    :param sigma: scale parameter for GEV
+    :param xi: shape parameter for GEV
     :param DD_Depth: depths from the depth-damage function, defined relative to FFE
-    :param DD_Damage: Description
+    :param DD_Damage: damage factor from the depth-damage function, defined out of 100
     """
     curr_elev = init_elev + delta_h # elevation of house after being elevated
     
@@ -106,8 +106,8 @@ def construction_cost(delta_h, sqft):
     """
     Docstring for construction_cost
     
-    :param delta_h: Description
-    :param sqft: Description
+    :param delta_h: height the house is being raised by
+    :param sqft: house square footage
     """
     # Cost of elevating according to CLARA are as the following:
     # 82.5/sqft (3 to 7)
@@ -141,12 +141,12 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     """
     Docstring for lifetime_reliability
     
-    :param life_span: Description
-    :param mu: Description
-    :param sigma: Description
-    :param xi: Description
-    :param init_elev: Description
-    :param delta_h: Description
+    :param life_span: house lifetime
+    :param mu: location parameter for GEV
+    :param sigma: scale parameter for GEV
+    :param xi: shape parameter for GEV
+    :param init_elev: house initial elevation
+    :param delta_h: height the house is being raised by
     """
     curr_elev = init_elev + delta_h
 
@@ -164,10 +164,10 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
     """
     Docstring for satisficing_all
     
-    :param bcr: Description
-    :param reliability: Description
-    :param total_cost: Description
-    :param struc_val: Description
+    :param bcr: benefit-cost ratio of strategy
+    :param reliability: lifetime reliability of strategy
+    :param total_cost: total cost of strategy
+    :param struc_val: house value
     """
     return np.array(bcr>1, reliability>0.5, total_cost/struc_val<1)
 
@@ -213,3 +213,5 @@ if verbose:
     print(f"Benefit-cost ratio: {opt_h_bcr}")
     print(f"Lifetime reliability: {opt_h_lr}")
     print(f"Satisficing: {opt_h_sa}")
+
+## Evaluate federal and state strategies
