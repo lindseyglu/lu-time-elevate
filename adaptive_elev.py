@@ -33,7 +33,7 @@ if verbose:
     print(f"Base flood elevation: {bfe}")
     print(f"Discount rate: {disc_rate}")
 
-# Set GEV parameters [currently using GEV from Zarekarizi et al. 2020]
+# Set GEV parameters (currently using GEV from Zarekarizi et al. 2020)
 mu = 19.8718901487264
 sigma = 3.16814792683425
 xi = 0.00515921024408503
@@ -78,7 +78,7 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     # Damage value lost at each depth, which depends on house value
     damage_vals = (DD_Damage/100) * struc_value
 
-    # Critical depths are depths where the damage factor changes. **ask**
+    # Critical depths are depths where the damage factor changes.
     crit_depths = DD_Depth + curr_elev # Calculates the stage of critical depths
 
     # Probability that water level exceeds each critical depth in one year
@@ -120,7 +120,7 @@ def construction_cost(delta_h, sqft):
     Rates=np.array(80.36,82.5,86.25,103.75,113.75)
 
     # The cost of elevating the house after the base cost depends on the size of the house
-    # Interpolate to find the new 
+    # Linear interpolate to find the new rate per sqft
     if delta_h>=3 & delta_h<=14:
         rate=np.interp(delta_h, Hs, Rates)
     else:     
@@ -172,6 +172,7 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
     return np.array(bcr>1, reliability>0.5, total_cost/struc_val<1)
 
 ## Evaluate strategies
+# Create empty arrays for damages, construction cost, reliability, and satisficing
 led = np.empty(len(delta_h_seq))
 cc = np.empty(len(delta_h_seq))
 lr = np.empty(len(delta_h_seq))
