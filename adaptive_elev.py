@@ -43,13 +43,13 @@ if verbose:
     print(f"scale: {sigma}")
     print(f"shape: {xi}")
 
-# Set elevation height strategies to evaluate
-delta_h_seq = np.array(0,3,4,5,6,7,8,9,10,11,12,13,14)
+# Set elevation height strategies to evaluate (first strategy must be 0)
+delta_h_seq = np.array([0,3,4,5,6,7,8,9,10,11,12,13,14])
 
 # Set depth-damage function
 # HAZUS DDF:
-depth = np.array(-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24)  # defined relative the FFE
-damage_fac = np.array(0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81)
+depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
+damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
 # Upper and lower bounds for sampling uncertainty
 # damage_fac_ub = damage_fac + damage_fac*0.3
 # damage_fac_lb = damage_fac - damage_fac*0.3
@@ -87,7 +87,7 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     # [add a block that avoids NaNs and NAs]
 
     # Calculate the expected annual damages (EAD)
-    EADfrac = np.empty(crit_depths)
+    EADfrac = np.empty(len(crit_depths))
     for i in range(len(crit_depths)):
         if i==len(crit_depths)-1:
             EADfrac[i] = crit_probs[i] * damage_vals[i]
@@ -116,8 +116,8 @@ def construction_cost(delta_h, sqft):
   
     # There is a base cost for elevating any house as the following. For more information, see appendix A of CLARA model through the link above 
     base_cost= 10000 + 300 + 470 + 4300 + 2175 + 3500
-    Hs=np.array(3,5,8.5,12,14)
-    Rates=np.array(80.36,82.5,86.25,103.75,113.75)
+    Hs=np.array([3,5,8.5,12,14])
+    Rates=np.array([80.36,82.5,86.25,103.75,113.75])
 
     # The cost of elevating the house after the base cost depends on the size of the house
     # Linear interpolate to find the new rate per sqft
@@ -169,7 +169,7 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
     :param total_cost: total cost of strategy
     :param struc_val: house value
     """
-    return np.array(bcr>1, reliability>0.5, total_cost/struc_val<1)
+    return np.array([bcr>1, reliability>0.5, total_cost/struc_val<1])
 
 ## Evaluate strategies
 # Create empty arrays for damages, construction cost, reliability, and satisficing
@@ -197,7 +197,7 @@ bcr_benefit = led[0]-led
 bcr = bcr_cost / bcr_benefit
 
 # Find optimal strategy not considering uncertainty
-i_min = np.argmin(tc)       # can change to maximize BCR instead of minimize TC
+i_min = np.nanargmin(tc)       # can change to maximize BCR instead of minimize TC
 opt_h = delta_h_seq[i_min]  # optimal height
 opt_h_led = led[i_min]      # damages at optimal height
 opt_h_cc = cc[i_min]        # construction cost at opt h
@@ -205,13 +205,77 @@ opt_h_tc = tc[i_min]        # total cost at opt h
 opt_h_bcr = bcr[i_min]      # benefit-cost ratio at opt h
 opt_h_lr = lr[i_min]        # reliability at opt h
 # Step 6: satisficing
-opt_h_sa = satisficing_all(opt_h_bcr, opt_h_tc, struc_value)
+opt_h_sa = satisficing_all(opt_h_bcr, opt_h_lr, opt_h_tc, struc_value)
 
 if verbose:
     print(f"Optimal height without uncertainty: {opt_h}")
-    print(f"Total cost: {opt_h_tc}")
-    print(f"Benefit-cost ratio: {opt_h_bcr}")
-    print(f"Lifetime reliability: {opt_h_lr}")
-    print(f"Satisficing: {opt_h_sa}")
+    print(f"\tDamages: {opt_h_led}")
+    print(f"\tTotal cost: {opt_h_tc}")
+    print(f"\tBenefit-cost ratio: {opt_h_bcr}")
+    print(f"\tLifetime reliability: {opt_h_lr}")
+    print(f"\tSatisfies BCR: {opt_h_sa[0]}")
+    print(f"\tSatisfies reliability: {opt_h_sa[1]}")
+    print(f"\tSatisfies total cost / structure value: {opt_h_sa[2]}")
 
 ## Evaluate federal and state strategies
+
+# FEMA recommendation
+fema_h = bfe+1
+fema_delta_h = fema_h - init_elev   # raised height needed
+# Massachusetts elevation
+mass_h = bfe+2
+mass_delta_h = mass_h - init_elev   # raised height needed
+
+# Evaluate FEMA recommendation
+# Step 1: lifetime expected damages
+if verbose: print(f"Evaluating FEMA strategy (raise by {fema_delta_h})")
+fema_led = lifetime_expected_damages(struc_value, init_elev, fema_delta_h, life_span, 
+                                     disc_rate, mu, sigma, xi, depth, damage_fac)
+# Step 2: construction cost
+fema_cc = construction_cost(fema_delta_h, sqft)
+# Step 3: reliability
+fema_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, fema_delta_h)
+# Step 4: total cost
+fema_tc = fema_led+fema_cc
+# Step 5: benefit-cost ratio
+fema_cost = fema_cc
+fema_benefit = led[0]-fema_led
+fema_bcr = fema_cost / fema_benefit
+# Step 6: satisficing
+fema_sa = satisficing_all(fema_bcr, fema_lr, fema_tc, struc_value)
+if verbose:
+    print(f"FEMA height to elevate: {fema_delta_h}")
+    print(f"\tDamages: {fema_led}")
+    print(f"\tTotal cost: {fema_tc}")
+    print(f"\tBenefit-cost ratio: {fema_bcr}")
+    print(f"\tLifetime reliability: {fema_lr}")
+    print(f"\tSatisfies BCR: {fema_sa[0]}")
+    print(f"\tSatisfies reliability: {fema_sa[1]}")
+    print(f"\tSatisfies total cost / structure value: {fema_sa[2]}")
+
+# Evaluate Massachusetts elevation
+# Step 1: lifetime expected damages
+if verbose: print(f"Evaluating Massachusetts strategy (raise by {mass_delta_h})")
+mass_led = lifetime_expected_damages(struc_value, init_elev, mass_delta_h, life_span, 
+                                     disc_rate, mu, sigma, xi, depth, damage_fac)
+# Step 2: construction cost
+mass_cc = construction_cost(mass_delta_h, sqft)
+# Step 3: reliability
+mass_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, mass_delta_h)
+# Step 4: total cost
+mass_tc = mass_led+mass_cc
+# Step 5: benefit-cost ratio
+mass_cost = mass_cc
+mass_benefit = led[0]-mass_led
+mass_bcr = mass_cost / mass_benefit
+# Step 6: satisficing
+mass_sa = satisficing_all(mass_bcr, mass_lr, mass_tc, struc_value)
+if verbose:
+    print(f"Massachusetts height to elevate: {mass_delta_h}")
+    print(f"\tDamages: {mass_led}")
+    print(f"\tTotal cost: {mass_tc}")
+    print(f"\tBenefit-cost ratio: {mass_bcr}")
+    print(f"\tLifetime reliability: {mass_lr}")
+    print(f"\tSatisfies BCR: {mass_sa[0]}")
+    print(f"\tSatisfies reliability: {mass_sa[1]}")
+    print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
