@@ -279,3 +279,18 @@ if verbose:
     print(f"\tSatisfies BCR: {mass_sa[0]}")
     print(f"\tSatisfies reliability: {mass_sa[1]}")
     print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
+
+#%% Create uncertainty ensembles
+
+# Consider 4 uncertainties:
+# 1. Discount rate [deep]
+#       a. random walk
+#       b. mean-reverting
+#       c. background linear trend (log-scale)
+# 2. House lifetime
+#       a. Weibull distribution (shape=2.8, scale=73.5)
+# 3. Depth-damage function [deep]
+#       a. European Commission DDF (uniform 30% unc)
+#       b. HAZUS (uniform 30% unc)
+# 4. Flooding frequency
+#       a. GEV distribution
