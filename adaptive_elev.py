@@ -303,4 +303,5 @@ def lifetime_unc(nsow, lifetime_func="weibull"):
         lt_unc = weibull_min.rvs(c=2.8, scale=73.5, size=nsow, random_state=None)
     else: raise ValueError(f"House lifetime function {lifetime_func} unknown")
 
-    return lifetime_func
+    return lt_unc
+
