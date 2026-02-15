@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import genextreme
 from scipy.stats import weibull_min
+from scipy.stats import uniform
 
 # Set print
 verbose = True
@@ -305,3 +306,18 @@ def lifetime_unc(nsow, lifetime_func="weibull"):
 
     return lt_unc
 
+# 4. Flooding frequency (uncertainty around GEV parameters)
+def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
+    # Generate random INTEGER indices from 0 to len(mu_chain)-1
+    # replace=True mimics bootstrapping behavior
+    indices = np.random.choice(len(mu_chain), size=nsow, replace=True)  # need to deal with rng seed
+    
+    # Pre-allocate the matrix (nsow rows, 3 cols)
+    params_unc = np.empty((nsow, 3))
+    
+    # Extract matching values using the integer indices
+    params_unc[:, 0] = mu_chain[indices]
+    params_unc[:, 1] = sigma_chain[indices]
+    params_unc[:, 2] = xi_chain[indices]
+    
+    return params_unc
