@@ -297,11 +297,14 @@ if verbose:
 # 4. Flooding frequency
 #       a. GEV distribution
 
+# Set seed
+rng = np.random.default_rng()
+
 # 2. House lifetime
 def lifetime_unc(nsow, lifetime_func="weibull"):
     # Randomly sample from weibull dist
     if lifetime_func == "weibull": 
-        lt_unc = weibull_min.rvs(c=2.8, scale=73.5, size=nsow, random_state=None)
+        lt_unc = weibull_min.rvs(c=2.8, scale=73.5, size=nsow, random_state=rng)
     else: raise ValueError(f"House lifetime function {lifetime_func} unknown")
 
     return lt_unc
@@ -310,7 +313,7 @@ def lifetime_unc(nsow, lifetime_func="weibull"):
 def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
     # Generate random INTEGER indices from 0 to len(mu_chain)-1
     # replace=True mimics bootstrapping behavior
-    indices = np.random.choice(len(mu_chain), size=nsow, replace=True)  # need to deal with rng seed
+    indices = rng.choice(len(mu_chain), size=nsow, replace=True)
     
     # Pre-allocate the matrix (nsow rows, 3 cols)
     params_unc = np.empty((nsow, 3))
