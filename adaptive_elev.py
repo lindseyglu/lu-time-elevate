@@ -12,6 +12,7 @@ characteristics and determines the cost function
 import pandas as pd
 import numpy as np
 from scipy.stats import genextreme
+from scipy.stats import weibull_min
 
 # Set print
 verbose = True
@@ -294,3 +295,12 @@ if verbose:
 #       b. HAZUS (uniform 30% unc)
 # 4. Flooding frequency
 #       a. GEV distribution
+
+# 2. House lifetime
+def lifetime_unc(nsow, lifetime_func="weibull"):
+    # Randomly sample from weibull dist
+    if lifetime_func == "weibull": 
+        lt_unc = weibull_min.rvs(c=2.8, scale=73.5, size=nsow, random_state=None)
+    else: raise ValueError(f"House lifetime function {lifetime_func} unknown")
+
+    return lifetime_func
