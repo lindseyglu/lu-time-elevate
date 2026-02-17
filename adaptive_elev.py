@@ -300,6 +300,99 @@ if verbose:
 # Set seed
 rng = np.random.default_rng()
 
+# 1. Discount rate
+def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=30):
+    """
+    Docstring for discount_unc
+    
+    :param obs_discount: Description
+    :param nsow: Description
+    :param dr_func: Description
+    :param lifetime: Description
+    """
+    # 1. Prepare data (log scale as per Newell & Pizer methodology)
+    # Assumes obs_discount is a 2D array-like with interest rates in the 2nd column
+    d = np.log(np.array(obs_discount)[:, 1])
+    n_cols = life_span + 1
+    
+    # Internal function runs model type
+    def run_ar3(model_type, pars):
+        # Allocate matrix (nsow rows, life_span + 3 years for AR(3) lag)
+        eps = np.full((nsow, life_span + 3), np.nan)
+        
+        # Initial Values logic
+        last_3 = d[-3:]
+        # Drift
+        if model_type == "drift":
+            offset = len(d) - 1
+            # Trend calculation
+            time_range = np.arange(offset - 2, life_span + offset + 1)
+            tr = pars['int'] + pars['slope'] * time_range
+            eps[:, :3] = last_3 - tr[:3]
+        # Mean reverting
+        elif model_type == "mrv": 
+            eps[:, :3] = last_3 - np.log(pars['eta'])
+        # Random walk
+        elif model_type == "rw":
+            first_valid = d[~np.isnan(d)][0]
+            eps[:, :3] = last_3 - first_valid
+            
+        # Stochastic Simulation (Looping over time is required for auto-regressive processes)
+        sigma = np.sqrt(pars['sigma_sq'])
+        for i in range(3, life_span + 3):
+            # Vectorized across all nsow states of the world
+            innovation = rng.normal(0, sigma, nsow)
+            eps[:, i] = (pars['rho1'] * eps[:, i-1] + 
+                         pars['rho2'] * eps[:, i-2] + 
+                         pars['rho3'] * eps[:, i-3] + innovation)
+        
+        # Convert innovations back to discount rates
+        if model_type == "drift":
+            rates = np.exp(eps[:, 3:] + tr[3:])
+        elif model_type == "mrv":
+            rates = np.exp(np.log(pars['eta']) + eps[:, 3:])
+        elif model_type == "rw":
+            rates = np.exp(first_valid + eps[:, 3:])
+            
+        # Calculate cumulative discount factors: exp(-sum(r_i / 100))
+        # np.cumsum along axis 1 (time) calculates the running sum for each SOW
+        dfactors = np.exp(-1 * np.cumsum(rates / 100, axis=1))
+        # Prepend 1.0 for year 0
+        return np.hstack([np.ones((nsow, 1)), dfactors])
+
+    # 2. Parameters (Best-estimates from script)
+    params_rw = {'rho1': 1.7429, 'rho2': -1.0455, 'rho3': 0.3010, 'sigma_sq': 0.0034}
+    params_mrv = {'eta': 3.405, 'rho1': 1.7371, 'rho2': -1.0270, 'rho3': 0.2806, 'sigma_sq': 0.0034}
+    params_drift = {'int': 1.9289, 'slope': -0.0058, 'rho1': 1.6965, 'rho2': -0.9755, 'rho3': 0.2388, 'sigma_sq': 0.0033}
+
+    # 3. Model Execution & Selection
+    if dr_func == "cert-4%":
+        t = np.arange(n_cols)
+        return np.tile(np.exp(-0.04 * t), (nsow, 1))
+
+    m_rw = run_ar3("rw", params_rw)
+    if dr_func == "rw": return m_rw
+    
+    m_mrv = run_ar3("mrv", params_mrv)
+    if dr_func == "mrv": return m_mrv
+    
+    m_drift = run_ar3("drift", params_drift)
+    if dr_func == "drift": return m_drift
+    
+    if dr_func == "deep":
+        # Vectorized choice using a mask
+        # Create an array of 0, 1, or 2 foreach SOW (mask)
+        selector = rng.choice([0, 1, 2], size=nsow)   # 0: rw, 1: mrv, 2: drift
+        # Allocate matrix
+        m_deep = np.zeros((nsow, n_cols))
+        # For each SOW, fill the row where the mask is true with the corresponding model
+        m_deep[selector == 0] = m_rw[selector == 0]
+        m_deep[selector == 1] = m_mrv[selector == 1]
+        m_deep[selector == 2] = m_drift[selector == 2]
+        return m_deep
+    
+    raise ValueError('Options are "rw", "mrv", "drift", "deep", or "cert-4%".')
+
 # 2. House lifetime
 def lifetime_unc(nsow, lifetime_func="weibull"):
     # Randomly sample from weibull dist
@@ -335,7 +428,7 @@ def ddf_unc(nsow, ddf_type="deep"):
     # Return depth-damage function
     if ddf_type == "deep":
         # Randomly choose between curve 1 and 2 for each row
-        selector = np.random.choice([0, 1], size=nsow)
+        selector = rng.choice([0, 1], size=nsow)
         # Apply the chosen damage factors to all the depths in the row (SOW)
         ret_damage = np.where(selector[:, None] == 0, damage_unc1, damage_unc2)
     elif ddf_type == "eu": ret_damage = damage_unc1
@@ -350,7 +443,7 @@ def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
     # replace=True mimics bootstrapping behavior
     indices = rng.choice(len(mu_chain), size=nsow, replace=True)
     
-    # Pre-allocate the matrix (nsow rows, 3 cols)
+    # Allocate the matrix (nsow rows, 3 cols)
     params_unc = np.empty((nsow, 3))
     
     # Extract matching values using the integer indices
