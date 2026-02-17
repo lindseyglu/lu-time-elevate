@@ -309,6 +309,41 @@ def lifetime_unc(nsow, lifetime_func="weibull"):
 
     return lt_unc
 
+# 3. Depth-damage function
+def ddf_unc(nsow, ddf_type="deep"):
+    # Define European Commission's depth-damage function
+    depth1 = np.array([0, 1.64, 3.28, 4.92, 6.56, 9.84, 13.12, 16.40])
+    damage_fac1 = np.array([0.20, 0.44, 0.58, 0.68, 0.78, 0.85, 0.92, 0.96])*100
+    # Define HAZUS depth-damage function
+    depth2 = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])
+    damage_fac2 = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
+
+    # Create an array of numbers from the minimum depth of either function to the maximum depth of either function
+    depths = np.linspace(min(min(depth1),min(depth2)), max(max(depth1), max(depth2)))
+    
+    # Interpolate between given damage factors
+    d1_interp = np.interp(depths, depth1, damage_fac1, left=0, right=damage_fac1[-1])
+    d2_interp = np.interp(depths, depth2, damage_fac2, left=0, right=damage_fac1[-1])
+
+    # Generate a random matrix of uncertainties
+    error1 = uniform.rvs(loc=-0.3, scale=0.6, size=(nsow,1), random_state=rng)
+    error2 = uniform.rvs(loc=-0.3, scale=0.6, size=(nsow,1), random_state=rng)
+    # Apply uncertainties to damage factors
+    damage_unc1 = d1_interp * (1+error1)
+    damage_unc2 = d2_interp * (1+error2)
+
+    # Return depth-damage function
+    if ddf_type == "deep":
+        # Randomly choose between curve 1 and 2 for each row
+        selector = np.random.choice([0, 1], size=nsow)
+        # Apply the chosen damage factors to all the depths in the row (SOW)
+        ret_damage = np.where(selector[:, None] == 0, damage_unc1, damage_unc2)
+    elif ddf_type == "eu": ret_damage = damage_unc1
+    elif ddf_type == "hazus": ret_damage = damage_unc2
+    else: raise ValueError(f"Depth-damage function {ddf_type} unknown")
+    
+    return np.vstack(depths, ret_damage)
+
 # 4. Flooding frequency (uncertainty around GEV parameters)
 def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
     # Generate random INTEGER indices from 0 to len(mu_chain)-1
