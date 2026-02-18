@@ -304,11 +304,12 @@ rng = np.random.default_rng()
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=30):
     """
     Docstring for discount_unc
+    returns a discount rate for each year of house lifetime and each SOW (nsow, life_span+1)
     
-    :param obs_discount: Description
-    :param nsow: Description
-    :param dr_func: Description
-    :param lifetime: Description
+    :param obs_discount: historical observed discount rate
+    :param nsow: number state of the worlds
+    :param dr_func: type of discount function
+    :param life_span: house lifetime
     """
     # 1. Prepare data (log scale as per Newell & Pizer methodology)
     # Assumes obs_discount is a 2D array-like with interest rates in the 2nd column
@@ -403,7 +404,7 @@ def lifetime_unc(nsow, lifetime_func="weibull"):
     return lt_unc
 
 # 3. Depth-damage function
-def ddf_unc(nsow, ddf_type="deep"):
+def depth_damage_unc(nsow, ddf_type="deep"):
     # Define European Commission's depth-damage function
     depth1 = np.array([0, 1.64, 3.28, 4.92, 6.56, 9.84, 13.12, 16.40])
     damage_fac1 = np.array([0.20, 0.44, 0.58, 0.68, 0.78, 0.85, 0.92, 0.96])*100
@@ -438,9 +439,9 @@ def ddf_unc(nsow, ddf_type="deep"):
     return np.vstack(depths, ret_damage)
 
 # 4. Flooding frequency (uncertainty around GEV parameters)
-def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
+def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
     # Generate random INTEGER indices from 0 to len(mu_chain)-1
-    # replace=True mimics bootstrapping behavior
+    # replace=True means sampled with replacement
     indices = rng.choice(len(mu_chain), size=nsow, replace=True)
     
     # Allocate the matrix (nsow rows, 3 cols)
@@ -452,3 +453,37 @@ def gev_unc(nsow, mu_chain, sigma_chain, xi_chain):
     params_unc[:, 2] = xi_chain[indices]
     
     return params_unc
+
+# Test uncertainty functions
+nsow = 10
+obs_discount = pd.read_csv('discount.csv')
+if verbose: print(f"Generating {nsow} SOWs")
+
+# Discount rate uncertainty
+dr_unc = discount_rate_unc(obs_discount, nsow)
+if verbose: 
+    print("Discount rate uncertainty ensemble")
+    print(dr_unc)
+
+# House lifetime uncertainty
+lt_unc = lifetime_unc(nsow)
+if verbose:
+    print("House lifetime uncertainty ensemble")
+    print(lt_unc)
+
+# Depth-damage function uncertainty
+ddf_unc = depth_damage_unc(nsow)
+if verbose:
+    print("Depth-damage function uncertainty ensemble")
+    print(ddf_unc)
+
+# Flooding frequency
+# For now, load in the mu, sigma, and xi chains Zarekarizi et al. produced
+mu_chain = pd.read_csv('mu_chain.csv')
+sigma_chain = pd.read_csv('sigma_chain.csv')
+xi_chain = pd.read_csv('xi_chain.csv')
+gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
+if verbose:
+    print("GEV parameter uncertainty ensemble")
+    print(gev_unc)
+# %%
