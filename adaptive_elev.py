@@ -282,7 +282,7 @@ if verbose:
     print(f"\tSatisfies reliability: {mass_sa[1]}")
     print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
 
-#%% Create uncertainty ensembles
+## Create uncertainty ensembles
 
 # Consider 4 uncertainties:
 # 1. Discount rate [deep]
@@ -296,9 +296,6 @@ if verbose:
 #       b. HAZUS (uniform 30% unc)
 # 4. Flooding frequency
 #       a. GEV distribution
-
-# Set seed
-rng = np.random.default_rng()
 
 # 1. Discount rate
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=30):
@@ -414,6 +411,9 @@ def depth_damage_unc(nsow, ddf_type="deep"):
 
     # Create an array of numbers from the minimum depth of either function to the maximum depth of either function
     depths = np.linspace(min(min(depth1),min(depth2)), max(max(depth1), max(depth2)))
+    if verbose: 
+        print("Depths generated:")
+        print(depths)
     
     # Interpolate between given damage factors
     d1_interp = np.interp(depths, depth1, damage_fac1, left=0, right=damage_fac1[-1])
@@ -436,7 +436,7 @@ def depth_damage_unc(nsow, ddf_type="deep"):
     elif ddf_type == "hazus": ret_damage = damage_unc2
     else: raise ValueError(f"Depth-damage function {ddf_type} unknown")
     
-    return np.vstack(depths, ret_damage)
+    return np.vstack((depths, ret_damage))
 
 # 4. Flooding frequency (uncertainty around GEV parameters)
 def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
@@ -454,36 +454,47 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
     
     return params_unc
 
-# Test uncertainty functions
-nsow = 10
-obs_discount = pd.read_csv('discount.csv')
-if verbose: print(f"Generating {nsow} SOWs")
+# ## Test uncertainty functions
+# nsow = 10
+# obs_discount = pd.read_csv('discount.csv')
+# if verbose: print(f"Generating {nsow} SOWs")
 
-# Discount rate uncertainty
-dr_unc = discount_rate_unc(obs_discount, nsow)
-if verbose: 
-    print("Discount rate uncertainty ensemble")
-    print(dr_unc)
+# # Discount rate uncertainty
+# dr_unc = discount_rate_unc(obs_discount, nsow)
+# if verbose: 
+#     print("Discount rate uncertainty ensemble")
+#     print(dr_unc)
 
-# House lifetime uncertainty
-lt_unc = lifetime_unc(nsow)
-if verbose:
-    print("House lifetime uncertainty ensemble")
-    print(lt_unc)
+# # House lifetime uncertainty
+# lt_unc = lifetime_unc(nsow)
+# if verbose:
+#     print("House lifetime uncertainty ensemble")
+#     print(lt_unc)
 
-# Depth-damage function uncertainty
-ddf_unc = depth_damage_unc(nsow)
-if verbose:
-    print("Depth-damage function uncertainty ensemble")
-    print(ddf_unc)
+# # Depth-damage function uncertainty
+# ddf_unc = depth_damage_unc(nsow)
+# if verbose:
+#     print("Depth-damage function uncertainty ensemble")
+#     print(ddf_unc)
 
-# Flooding frequency
-# For now, load in the mu, sigma, and xi chains Zarekarizi et al. produced
-mu_chain = pd.read_csv('mu_chain.csv')
-sigma_chain = pd.read_csv('sigma_chain.csv')
-xi_chain = pd.read_csv('xi_chain.csv')
-gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
-if verbose:
-    print("GEV parameter uncertainty ensemble")
-    print(gev_unc)
-# %%
+# # Flooding frequency
+# # For now, load in the mu, sigma, and xi chains Zarekarizi et al. produced
+# mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
+# sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
+# xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
+# if verbose: 
+#     print("Input mu_chain")
+#     print(mu_chain)
+# gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
+# if verbose:
+#     print("GEV parameter uncertainty ensemble")
+#     print(gev_unc)
+
+## Convergence testing
+
+# Step 0: Set parameters for convergence testing
+nsow = 10       # how many SOWs
+iterat = 10     # how many iterations
+rng = np.random.default_rng()   # set seed
+
+# Step 1: Generate uncertainty ensembles
