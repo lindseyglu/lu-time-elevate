@@ -517,3 +517,91 @@ ens[:,0:2] = gev_unc[i_sow[:,0], :]         # GEV parameters
 ens[:,3:203] = dr_unc[i_sow[:,1], :]        # Discount rate
 ens[:,204] = lt_unc[i_sow[:,2], :]          # Lifetime
 ens[:,205:254] = ddf_unc[i_sow[:,3], :]     # Depth-damage function
+
+## Find optimal elevation under uncertainty
+
+# # Create a dataframe to hold the objectives of optimal strategy
+# opt_obj = pd.DataFrame(columns=["Total cost", 
+#                                 "Benefit-cost ratio", 
+#                                 "Lifetime reliability"])
+
+# Calculate the total cost, benefit-cost ration, lifetime reliability, satisficing
+
+verbose = True
+
+# 1. Initialize matrices to store ensembles (Rows = Strategies, Cols = SOWs)
+num_strat = len(delta_h_seq)
+led_ens = np.zeros((num_strat, nsow))
+cc_ens = np.zeros(num_strat)
+lr_ens = np.zeros((num_strat, nsow))
+
+# Extract the depth headers (the first row of ddf_unc)
+dd_depths = ddf_unc[0, :]
+
+if verbose: print("Evaluating strategies across all SOWs...")
+
+for i, dh in enumerate(delta_h_seq):
+    # Construction cost is fixed for the strategy (not uncertain)
+    cc_ens[i] = construction_cost(dh, sqft)
+    
+    for j in range(nsow):
+        # Extract SOW specific parameters from the 'ens' matrix
+        # Note: adjust indices based on your 'ens' mapping
+        mu_sow, sigma_sow, xi_sow = ens[j, 0:3]
+        
+        # Lifetime (column 204)
+        life_sow = int(np.floor(ens[j, 204]))
+        
+        # Discount rates (columns 3 to 203) - slice based on lifetime
+        # We ensure we don't exceed the 201 available years
+        dr_sow = ens[j, 3 : 3 + min(life_sow, 201)]
+        
+        # Damage curve (columns 205 to 254)
+        dd_damage_sow = ens[j, 205:254]
+        
+        # Calculate objectives for this SOW
+        led_ens[i, j] = lifetime_expected_damages(
+            struc_value, init_elev, dh, life_sow, 
+            dr_sow, mu_sow, sigma_sow, xi_sow, dd_depths, dd_damage_sow
+        )
+        
+        lr_ens[i, j] = lifetime_reliability(
+            life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
+        )
+
+# 2. Derived Objectives
+# Total Cost Ensemble
+tc_ens = led_ens + cc_ens[:, np.newaxis]
+
+# Benefit-Cost Ratio Ensemble (Benefit = Damages at h=0 - Damages at h=i)
+bcr_ens = np.zeros((num_strat, nsow))
+for i in range(1, num_strat):
+    # Avoid division by zero if cc is 0 (though already handled by loop range)
+    bcr_ens[i, :] = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+
+# 3. Find Optimal Strategy (Minimizing Mean Total Cost)
+mean_tc_per_strategy = np.mean(tc_ens, axis=1)
+idx_opt_unc = np.argmin(mean_tc_per_strategy)
+
+opt_h_unc = delta_h_seq[idx_opt_unc]
+
+# 4. Calculate Robustness (Satisficing) for the Optimal Strategy
+# Criteria: BCR > 1, Reliability > 0.5, TC/Structure Value < 1
+# We calculate the % of SOWs where the optimal height is "Robust"
+robustness_mask = (
+    (bcr_ens[idx_opt_unc, :] > 1) & 
+    (lr_ens[idx_opt_unc, :] > 0.5) & 
+    ((tc_ens[idx_opt_unc, :] / struc_value) < 1)
+)
+robustness_score = np.mean(robustness_mask) * 100
+
+# 5. Output Results
+if verbose:
+    print("\n" + "="*40)
+    print("RESULTS: OPTIMAL ELEVATION UNDER UNCERTAINTY")
+    print("="*40)
+    print(f"Optimal Height (delta_h): {opt_h_unc} ft")
+    print(f"Mean Total Cost: ${mean_tc_per_strategy[idx_opt_unc]:,.2f}")
+    print(f"Mean Reliability: {np.mean(lr_ens[idx_opt_unc, :]):.4f}")
+    print(f"Mean BCR: {np.mean(bcr_ens[idx_opt_unc, :]):.2f}")
+    print(f"Satisficing Score (Robustness): {robustness_score:.2f}%")
