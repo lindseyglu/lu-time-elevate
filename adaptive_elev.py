@@ -14,6 +14,7 @@ import numpy as np
 from scipy.stats import genextreme
 from scipy.stats import weibull_min
 from scipy.stats import uniform
+from scipy.stats import qmc             # for Latin Hypercube Sampling
 
 # Set print
 verbose = True
@@ -298,7 +299,7 @@ if verbose:
 #       a. GEV distribution
 
 # 1. Discount rate
-def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=30):
+def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
     """
     Docstring for discount_unc
     returns a discount rate for each year of house lifetime and each SOW (nsow, life_span+1)
@@ -306,7 +307,7 @@ def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=30):
     :param obs_discount: historical observed discount rate
     :param nsow: number state of the worlds
     :param dr_func: type of discount function
-    :param life_span: house lifetime
+    :param life_span: house lifetime (set as 200 as max)
     """
     # 1. Prepare data (log scale as per Newell & Pizer methodology)
     # Assumes obs_discount is a 2D array-like with interest rates in the 2nd column
@@ -436,6 +437,7 @@ def depth_damage_unc(nsow, ddf_type="deep"):
     elif ddf_type == "hazus": ret_damage = damage_unc2
     else: raise ValueError(f"Depth-damage function {ddf_type} unknown")
     
+    # Array size: nrow: 50 (default from np.linspace), ncol: nsow+1 (the first row is depths)
     return np.vstack((depths, ret_damage))
 
 # 4. Flooding frequency (uncertainty around GEV parameters)
@@ -454,47 +456,64 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
     
     return params_unc
 
-# ## Test uncertainty functions
-# nsow = 10
-# obs_discount = pd.read_csv('discount.csv')
-# if verbose: print(f"Generating {nsow} SOWs")
-
-# # Discount rate uncertainty
-# dr_unc = discount_rate_unc(obs_discount, nsow)
-# if verbose: 
-#     print("Discount rate uncertainty ensemble")
-#     print(dr_unc)
-
-# # House lifetime uncertainty
-# lt_unc = lifetime_unc(nsow)
-# if verbose:
-#     print("House lifetime uncertainty ensemble")
-#     print(lt_unc)
-
-# # Depth-damage function uncertainty
-# ddf_unc = depth_damage_unc(nsow)
-# if verbose:
-#     print("Depth-damage function uncertainty ensemble")
-#     print(ddf_unc)
-
-# # Flooding frequency
-# # For now, load in the mu, sigma, and xi chains Zarekarizi et al. produced
-# mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
-# sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
-# xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
-# if verbose: 
-#     print("Input mu_chain")
-#     print(mu_chain)
-# gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
-# if verbose:
-#     print("GEV parameter uncertainty ensemble")
-#     print(gev_unc)
-
-## Convergence testing
+## Create uncertainty ensembles
 
 # Step 0: Set parameters for convergence testing
 nsow = 10       # how many SOWs
 iterat = 10     # how many iterations
 rng = np.random.default_rng()   # set seed
+verbose = False
 
-# Step 1: Generate uncertainty ensembles
+# Read in data files
+obs_discount = pd.read_csv('discount.csv')
+# For now, load in the mu, sigma, and xi chains Zarekarizi et al. produced
+mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
+sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
+xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
+
+if verbose: print(f"Generating {nsow} SOWs")
+
+# Discount rate uncertainty (nsow*201)
+dr_unc = discount_rate_unc(obs_discount, nsow)
+if verbose: 
+    print("Discount rate uncertainty ensemble")
+    print(dr_unc)
+
+# House lifetime uncertainty (nsow)
+lt_unc = lifetime_unc(nsow)
+if verbose:
+    print("House lifetime uncertainty ensemble")
+    print(lt_unc)
+
+# Depth-damage function uncertainty (nsow*50)
+ddf_unc = depth_damage_unc(nsow)
+if verbose:
+    print("Depth-damage function uncertainty ensemble")
+    print(ddf_unc)
+
+# GEV parameter uncertainty (nsow*3)
+if verbose: 
+    print("Input mu_chain")
+    print(mu_chain)
+gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
+if verbose:
+    print("GEV parameter uncertainty ensemble")
+    print(gev_unc)
+
+# Allocate ensemble array
+ens = np.empty((nsow,255))                  # 201+1+50+3=255
+
+# Use Latin Hypercube Sampling to create ensemble for each SOW
+sampler = qmc.LatinHypercube(d=4)           # 4 parameters
+sample = sampler.random(n=nsow)             # Generate nsow samples
+i_sow = np.floor(sample * nsow).astype(int) # Map 0-1 values to row indices
+# The first row of the depth-damage function is the depths, so don't sample from row 0
+# Re-calculate ONLY the 4th column to fit the range [1, nsow-1]
+# Multiply the [0,1] sample by (nsow-2) and add 1
+i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
+
+# Map parameters (given LHS) to ensemble
+ens[:,0:2] = gev_unc[i_sow[:,0], :]         # GEV parameters
+ens[:,3:203] = dr_unc[i_sow[:,1], :]        # Discount rate
+ens[:,204] = lt_unc[i_sow[:,2], :]          # Lifetime
+ens[:,205:254] = ddf_unc[i_sow[:,3], :]     # Depth-damage function
