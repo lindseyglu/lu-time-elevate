@@ -17,15 +17,15 @@ from scipy.stats import uniform
 from scipy.stats import qmc             # for Latin Hypercube Sampling
 
 # Set print
-verbose = True
+verbose = False
 
 # Set house characteristics and discount rate
-sqft = 1000
-struc_value = 250000
-del_elev = -6           # difference in house elev and BFE
+sqft = 1500
+struc_value = 300000
+del_elev = -4           # difference in house elev and BFE
 life_span = 30
 disc_rate = np.full(shape=(life_span,), fill_value=0.04)
-bfe = 8
+bfe = 34.7
 # Initial house elev
 init_elev = bfe + del_elev
 if verbose: 
@@ -124,7 +124,7 @@ def construction_cost(delta_h, sqft):
 
     # The cost of elevating the house after the base cost depends on the size of the house
     # Linear interpolate to find the new rate per sqft
-    if delta_h>=3 & delta_h<=14:
+    if 3 <= delta_h <= 14:
         rate=np.interp(delta_h, Hs, Rates)
     else:     
         rate=0
@@ -513,10 +513,10 @@ i_sow = np.floor(sample * nsow).astype(int) # Map 0-1 values to row indices
 i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
 
 # Map parameters (given LHS) to ensemble
-ens[:,0:2] = gev_unc[i_sow[:,0], :]         # GEV parameters
-ens[:,3:203] = dr_unc[i_sow[:,1], :]        # Discount rate
-ens[:,204] = lt_unc[i_sow[:,2], :]          # Lifetime
-ens[:,205:254] = ddf_unc[i_sow[:,3], :]     # Depth-damage function
+ens[:,0:3] = gev_unc[i_sow[:,0], :]         # GEV parameters
+ens[:,3:204] = dr_unc[i_sow[:,1], :]        # Discount rate
+ens[:,204] = lt_unc[i_sow[:,2]]             # Lifetime (lt_unc is a 1D array)
+ens[:,205:255] = ddf_unc[i_sow[:,3], :]     # Depth-damage function
 
 ## Find optimal elevation under uncertainty
 
@@ -553,11 +553,11 @@ for i, dh in enumerate(delta_h_seq):
         life_sow = int(np.floor(ens[j, 204]))
         
         # Discount rates (columns 3 to 203) - slice based on lifetime
-        # We ensure we don't exceed the 201 available years
+        # We ensure we don't exceed the 201 available years                 **double-check this**
         dr_sow = ens[j, 3 : 3 + min(life_sow, 201)]
         
         # Damage curve (columns 205 to 254)
-        dd_damage_sow = ens[j, 205:254]
+        dd_damage_sow = ens[j, 205:255]
         
         # Calculate objectives for this SOW
         led_ens[i, j] = lifetime_expected_damages(
@@ -572,6 +572,7 @@ for i, dh in enumerate(delta_h_seq):
 # 2. Derived Objectives
 # Total Cost Ensemble
 tc_ens = led_ens + cc_ens[:, np.newaxis]
+# if verbose: print(tc_ens)
 
 # Benefit-Cost Ratio Ensemble (Benefit = Damages at h=0 - Damages at h=i)
 bcr_ens = np.zeros((num_strat, nsow))
@@ -581,6 +582,16 @@ for i in range(1, num_strat):
 
 # 3. Find Optimal Strategy (Minimizing Mean Total Cost)
 mean_tc_per_strategy = np.mean(tc_ens, axis=1)
+mean_led_per_strategy = np.mean(led_ens, axis=1)
+if verbose: 
+    print("Mean TC per strategy")
+    print(mean_tc_per_strategy)
+if verbose:
+    print("Mean LED per strategy")
+    print(mean_led_per_strategy)
+if verbose:
+    print("Construction cost per strategy")
+    print(cc_ens)
 idx_opt_unc = np.argmin(mean_tc_per_strategy)
 
 opt_h_unc = delta_h_seq[idx_opt_unc]
