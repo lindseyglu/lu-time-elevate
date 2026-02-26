@@ -24,8 +24,9 @@ sqft = 1500
 struc_value = 300000
 del_elev = -4           # difference in house elev and BFE
 life_span = 30
-disc_rate = np.full(shape=(life_span,), fill_value=0.04)        # **needs to be changed**
-bfe = 34.7
+dr_i = np.arange(201)
+disc_rate = np.exp(-1 * (0.04 * dr_i))      # **needs to be changed**
+bfe = 34.7              # generated in the R code
 # Initial house elev
 init_elev = bfe + del_elev
 if verbose: 
@@ -53,10 +54,6 @@ delta_h_seq = np.array([0,3,4,5,6,7,8,9,10,11,12,13,14])
 # HAZUS DDF:
 depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
-# Upper and lower bounds for sampling uncertainty
-# damage_fac_ub = damage_fac + damage_fac*0.3
-# damage_fac_lb = damage_fac - damage_fac*0.3
-# damage_fac_ub[damage_fac_ub>100] = 100
 
 ## Total cost is lifetime expected damages + construction cost
 
@@ -85,9 +82,22 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     crit_depths = DD_Depth + curr_elev # Calculates the stage of critical depths
 
     # Probability that water level exceeds each critical depth in one year
-    crit_probs = 1 - genextreme.cdf(x=crit_depths, c=xi, loc=mu, scale=sigma)
+    # When c < 0, Frechet-type tail
+    crit_probs = 1 - genextreme.cdf(x=crit_depths, c=-xi, loc=mu, scale=sigma)
 
-    # [add a block that avoids NaNs and NAs]
+    # Block avoids NaNs and NAs
+    if np.any(np.isnan(crit_probs)):
+        # Generate samples to find the empirical range of the distribution
+        test_x = genextreme.rvs(c=-xi, loc=mu, scale=sigma, size=10**6)
+        
+        # Where crit_probs is NaN, check if depth is below min or above max observed
+        mask_nan = np.isnan(crit_probs)
+        crit_probs[mask_nan & (crit_depths < np.min(test_x))] = 0
+        crit_probs[mask_nan & (crit_depths > np.max(test_x))] = 1
+        
+        # If NaNs still exist after clamping, raise error
+        if np.any(np.isnan(crit_probs)):
+            raise ValueError("I dont know what to do.... (NaNs persisted in crit_probs)")
 
     # Calculate the expected annual damages (EAD)
     EADfrac = np.empty(len(crit_depths))
@@ -154,7 +164,8 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     curr_elev = init_elev + delta_h
 
     # Safety is probability of zero floods during the next n years where n is the expected lifetime of the house
-    safety = genextreme.cdf(x=curr_elev, c=xi, loc=mu, scale=sigma) ** (life_span//1)
+    # When c < 0, Frechet-type tail
+    safety = genextreme.cdf(x=curr_elev, c=-xi, loc=mu, scale=sigma) ** (life_span//1)
     return(safety)
 
 ## Benefit-cost ratio
@@ -174,114 +185,114 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
     """
     return np.array([bcr>1, reliability>0.5, total_cost/struc_val<1])
 
-## Evaluate strategies
-# Create empty arrays for damages, construction cost, reliability, and satisficing
-led = np.empty(len(delta_h_seq))
-cc = np.empty(len(delta_h_seq))
-lr = np.empty(len(delta_h_seq))
-sa = np.empty(len(delta_h_seq))
+# ## Evaluate strategies
+# # Create empty arrays for damages, construction cost, reliability, and satisficing
+# led = np.empty(len(delta_h_seq))
+# cc = np.empty(len(delta_h_seq))
+# lr = np.empty(len(delta_h_seq))
+# sa = np.empty(len(delta_h_seq))
 
-# Iterate through strategies
-for i in range(len(delta_h_seq)):
-    if verbose: print(f"Evaluating strategy {i+1} of {len(delta_h_seq)}")
-    # Step 1: lifetime expected damages
-    led[i] = lifetime_expected_damages(struc_value, init_elev, delta_h_seq[i], life_span, 
-                                    disc_rate, mu, sigma, xi, depth, damage_fac)
-    # Step 2: construction cost
-    cc[i] = construction_cost(delta_h_seq[i], sqft)
-    # Step 3: reliability
-    lr[i] = lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h_seq[i])
+# # Iterate through strategies
+# for i in range(len(delta_h_seq)):
+#     if verbose: print(f"Evaluating strategy {i+1} of {len(delta_h_seq)}")
+#     # Step 1: lifetime expected damages
+#     led[i] = lifetime_expected_damages(struc_value, init_elev, delta_h_seq[i], life_span, 
+#                                     disc_rate, mu, sigma, xi, depth, damage_fac)
+#     # Step 2: construction cost
+#     cc[i] = construction_cost(delta_h_seq[i], sqft)
+#     # Step 3: reliability
+#     lr[i] = lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h_seq[i])
 
-# Step 4: total cost
-tc = led+cc
-# Step 5: benefit-cost ratio
-bcr_cost = cc
-bcr_benefit = led[0]-led
-bcr = bcr_cost / bcr_benefit
+# # Step 4: total cost
+# tc = led+cc
+# # Step 5: benefit-cost ratio
+# bcr_cost = cc
+# bcr_benefit = led[0]-led
+# bcr = bcr_cost / bcr_benefit
 
-# Find optimal strategy not considering uncertainty
-i_min = np.nanargmin(tc)       # can change to maximize BCR instead of minimize TC
-opt_h = delta_h_seq[i_min]  # optimal height
-opt_h_led = led[i_min]      # damages at optimal height
-opt_h_cc = cc[i_min]        # construction cost at opt h
-opt_h_tc = tc[i_min]        # total cost at opt h
-opt_h_bcr = bcr[i_min]      # benefit-cost ratio at opt h
-opt_h_lr = lr[i_min]        # reliability at opt h
-# Step 6: satisficing
-opt_h_sa = satisficing_all(opt_h_bcr, opt_h_lr, opt_h_tc, struc_value)
+# # Find optimal strategy not considering uncertainty
+# i_min = np.nanargmin(tc)       # can change to maximize BCR instead of minimize TC
+# opt_h = delta_h_seq[i_min]  # optimal height
+# opt_h_led = led[i_min]      # damages at optimal height
+# opt_h_cc = cc[i_min]        # construction cost at opt h
+# opt_h_tc = tc[i_min]        # total cost at opt h
+# opt_h_bcr = bcr[i_min]      # benefit-cost ratio at opt h
+# opt_h_lr = lr[i_min]        # reliability at opt h
+# # Step 6: satisficing
+# opt_h_sa = satisficing_all(opt_h_bcr, opt_h_lr, opt_h_tc, struc_value)
 
-if verbose:
-    print(f"Optimal height without uncertainty: {opt_h}")
-    print(f"\tDamages: {opt_h_led}")
-    print(f"\tTotal cost: {opt_h_tc}")
-    print(f"\tBenefit-cost ratio: {opt_h_bcr}")
-    print(f"\tLifetime reliability: {opt_h_lr}")
-    print(f"\tSatisfies BCR: {opt_h_sa[0]}")
-    print(f"\tSatisfies reliability: {opt_h_sa[1]}")
-    print(f"\tSatisfies total cost / structure value: {opt_h_sa[2]}")
+# if verbose:
+#     print(f"Optimal height without uncertainty: {opt_h}")
+#     print(f"\tDamages: {opt_h_led}")
+#     print(f"\tTotal cost: {opt_h_tc}")
+#     print(f"\tBenefit-cost ratio: {opt_h_bcr}")
+#     print(f"\tLifetime reliability: {opt_h_lr}")
+#     print(f"\tSatisfies BCR: {opt_h_sa[0]}")
+#     print(f"\tSatisfies reliability: {opt_h_sa[1]}")
+#     print(f"\tSatisfies total cost / structure value: {opt_h_sa[2]}")
 
-## Evaluate federal and state strategies
+# ## Evaluate federal and state strategies
 
-# FEMA recommendation
-fema_h = bfe+1
-fema_delta_h = fema_h - init_elev   # raised height needed
-# Massachusetts elevation
-mass_h = bfe+2
-mass_delta_h = mass_h - init_elev   # raised height needed
+# # FEMA recommendation
+# fema_h = bfe+1
+# fema_delta_h = fema_h - init_elev   # raised height needed
+# # Massachusetts elevation
+# mass_h = bfe+2
+# mass_delta_h = mass_h - init_elev   # raised height needed
 
-# Evaluate FEMA recommendation
-# Step 1: lifetime expected damages
-if verbose: print(f"Evaluating FEMA strategy (raise by {fema_delta_h})")
-fema_led = lifetime_expected_damages(struc_value, init_elev, fema_delta_h, life_span, 
-                                     disc_rate, mu, sigma, xi, depth, damage_fac)
-# Step 2: construction cost
-fema_cc = construction_cost(fema_delta_h, sqft)
-# Step 3: reliability
-fema_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, fema_delta_h)
-# Step 4: total cost
-fema_tc = fema_led+fema_cc
-# Step 5: benefit-cost ratio
-fema_cost = fema_cc
-fema_benefit = led[0]-fema_led
-fema_bcr = fema_cost / fema_benefit
-# Step 6: satisficing
-fema_sa = satisficing_all(fema_bcr, fema_lr, fema_tc, struc_value)
-if verbose:
-    print(f"FEMA height to elevate: {fema_delta_h}")
-    print(f"\tDamages: {fema_led}")
-    print(f"\tTotal cost: {fema_tc}")
-    print(f"\tBenefit-cost ratio: {fema_bcr}")
-    print(f"\tLifetime reliability: {fema_lr}")
-    print(f"\tSatisfies BCR: {fema_sa[0]}")
-    print(f"\tSatisfies reliability: {fema_sa[1]}")
-    print(f"\tSatisfies total cost / structure value: {fema_sa[2]}")
+# # Evaluate FEMA recommendation
+# # Step 1: lifetime expected damages
+# if verbose: print(f"Evaluating FEMA strategy (raise by {fema_delta_h})")
+# fema_led = lifetime_expected_damages(struc_value, init_elev, fema_delta_h, life_span, 
+#                                      disc_rate, mu, sigma, xi, depth, damage_fac)
+# # Step 2: construction cost
+# fema_cc = construction_cost(fema_delta_h, sqft)
+# # Step 3: reliability
+# fema_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, fema_delta_h)
+# # Step 4: total cost
+# fema_tc = fema_led+fema_cc
+# # Step 5: benefit-cost ratio
+# fema_cost = fema_cc
+# fema_benefit = led[0]-fema_led
+# fema_bcr = fema_cost / fema_benefit
+# # Step 6: satisficing
+# fema_sa = satisficing_all(fema_bcr, fema_lr, fema_tc, struc_value)
+# if verbose:
+#     print(f"FEMA height to elevate: {fema_delta_h}")
+#     print(f"\tDamages: {fema_led}")
+#     print(f"\tTotal cost: {fema_tc}")
+#     print(f"\tBenefit-cost ratio: {fema_bcr}")
+#     print(f"\tLifetime reliability: {fema_lr}")
+#     print(f"\tSatisfies BCR: {fema_sa[0]}")
+#     print(f"\tSatisfies reliability: {fema_sa[1]}")
+#     print(f"\tSatisfies total cost / structure value: {fema_sa[2]}")
 
-# Evaluate Massachusetts elevation
-# Step 1: lifetime expected damages
-if verbose: print(f"Evaluating Massachusetts strategy (raise by {mass_delta_h})")
-mass_led = lifetime_expected_damages(struc_value, init_elev, mass_delta_h, life_span, 
-                                     disc_rate, mu, sigma, xi, depth, damage_fac)
-# Step 2: construction cost
-mass_cc = construction_cost(mass_delta_h, sqft)
-# Step 3: reliability
-mass_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, mass_delta_h)
-# Step 4: total cost
-mass_tc = mass_led+mass_cc
-# Step 5: benefit-cost ratio
-mass_cost = mass_cc
-mass_benefit = led[0]-mass_led
-mass_bcr = mass_cost / mass_benefit
-# Step 6: satisficing
-mass_sa = satisficing_all(mass_bcr, mass_lr, mass_tc, struc_value)
-if verbose:
-    print(f"Massachusetts height to elevate: {mass_delta_h}")
-    print(f"\tDamages: {mass_led}")
-    print(f"\tTotal cost: {mass_tc}")
-    print(f"\tBenefit-cost ratio: {mass_bcr}")
-    print(f"\tLifetime reliability: {mass_lr}")
-    print(f"\tSatisfies BCR: {mass_sa[0]}")
-    print(f"\tSatisfies reliability: {mass_sa[1]}")
-    print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
+# # Evaluate Massachusetts elevation
+# # Step 1: lifetime expected damages
+# if verbose: print(f"Evaluating Massachusetts strategy (raise by {mass_delta_h})")
+# mass_led = lifetime_expected_damages(struc_value, init_elev, mass_delta_h, life_span, 
+#                                      disc_rate, mu, sigma, xi, depth, damage_fac)
+# # Step 2: construction cost
+# mass_cc = construction_cost(mass_delta_h, sqft)
+# # Step 3: reliability
+# mass_lr = lifetime_reliability(life_span, mu, sigma, xi, init_elev, mass_delta_h)
+# # Step 4: total cost
+# mass_tc = mass_led+mass_cc
+# # Step 5: benefit-cost ratio
+# mass_cost = mass_cc
+# mass_benefit = led[0]-mass_led
+# mass_bcr = mass_cost / mass_benefit
+# # Step 6: satisficing
+# mass_sa = satisficing_all(mass_bcr, mass_lr, mass_tc, struc_value)
+# if verbose:
+#     print(f"Massachusetts height to elevate: {mass_delta_h}")
+#     print(f"\tDamages: {mass_led}")
+#     print(f"\tTotal cost: {mass_tc}")
+#     print(f"\tBenefit-cost ratio: {mass_bcr}")
+#     print(f"\tLifetime reliability: {mass_lr}")
+#     print(f"\tSatisfies BCR: {mass_sa[0]}")
+#     print(f"\tSatisfies reliability: {mass_sa[1]}")
+#     print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
 
 ## Create uncertainty ensembles
 
@@ -458,116 +469,87 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 
 
 ## Test finding the optimal elevation using SOW ensemble generated by the R code
-ens = pd.read_cs
+verbose = True
 
-## ------------------------------------------------------------------
-## CONVERGENCE TESTING & UNCERTAINTY ENSEMBLES
-## ------------------------------------------------------------------
-
-# Set parameters for convergence testing
-nsow_values = [10, 100, 1000, 10000]
-iterations = 10
-rng = np.random.default_rng()
-
-# Read in data files (Load outside the loop to save time)
-obs_discount = pd.read_csv('discount.csv')
-mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
-sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
-xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
-
-# List to store our convergence results
-convergence_results = []
+if verbose: print("Loading pre-generated SOWs")
+ens = pd.read_csv('SOWs.csv').to_numpy()
 num_strat = len(delta_h_seq)
+current_nsow = 10000     # get number of columns (nsow) in ensemble
 
-print("Starting Convergence Testing...\n")
+# --- 2. Evaluate Strategies ---
+led_ens = np.zeros((num_strat, current_nsow))
+cc_ens = np.zeros(num_strat)
+lr_ens = np.zeros((num_strat, current_nsow))
+dd_depths = np.linspace(-4, 24, 100)
+        
+for i, dh in enumerate(delta_h_seq):
+    if verbose: print(f"Evaluating strategy dh = {dh}")
+    cc_ens[i] = construction_cost(dh, sqft)
 
-# Outer loop: Iterate through different sample sizes
-for current_nsow in nsow_values:
-    print(f"Testing nsow = {current_nsow}...")
-    
-    # Inner loop: Run iterations for the current sample size
-    for it in range(iterations):
-        if verbose: print(f"\tIteration {it+1}/{iterations}")
-        
-        # --- 1. Generate Uncertainties for this iteration ---
-        dr_unc = discount_rate_unc(obs_discount, current_nsow)
-        lt_unc = lifetime_unc(current_nsow)
-        ddf_unc = depth_damage_unc(current_nsow)
-        gev_unc = gev_param_unc(current_nsow, mu_chain, sigma_chain, xi_chain)
-        
-        # Allocate ensemble array and perform LHS
-        ens = np.empty((current_nsow, 255))
-        sampler = qmc.LatinHypercube(d=4)
-        sample = sampler.random(n=current_nsow)
-        
-        i_sow = np.floor(sample * current_nsow).astype(int)
-        # Avoid sampling row 0 (depths) for the depth-damage function
-        i_sow[:, 3] = np.floor(sample[:, 3] * (current_nsow - 2)).astype(int) + 1
-        
-        # Map parameters to ensemble matrix
-        ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
-        ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
-        ens[:, 204] = lt_unc[i_sow[:,2]]             
-        ens[:, 205:255] = ddf_unc[i_sow[:,3], :]     
-        
-        # --- 2. Evaluate Strategies ---
-        led_ens = np.zeros((num_strat, current_nsow))
-        cc_ens = np.zeros(num_strat)
-        lr_ens = np.zeros((num_strat, current_nsow))
-        dd_depths = ddf_unc[0, :]
-        
-        for i, dh in enumerate(delta_h_seq):
-            cc_ens[i] = construction_cost(dh, sqft)
-            for j in range(current_nsow):
-                mu_sow, sigma_sow, xi_sow = ens[j, 0:3]
-                life_sow = int(np.floor(ens[j, 204]))
-                dr_sow = ens[j, 3 : 3 + min(life_sow, 201)]
-                dd_damage_sow = ens[j, 205:255]
-                
-                # Use your corrected lifetime_expected_damages function here
-                led_ens[i, j] = lifetime_expected_damages(
-                    struc_value, init_elev, dh, life_sow, 
-                    dr_sow, mu_sow, sigma_sow, xi_sow, dd_depths, dd_damage_sow
-                )
-                lr_ens[i, j] = lifetime_reliability(
-                    life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
-                )
+    for j in range(current_nsow):
+        # Index 0 is the 'Unnamed' R index. Data starts at 1.
+        mu_sow, sigma_sow, xi_sow = ens[j, 1:4]
 
-        # --- 3. Calculate Derived Objectives ---
-        tc_ens = led_ens + cc_ens[:, np.newaxis]
-        bcr_ens = np.zeros((num_strat, current_nsow))
-        for i in range(1, num_strat):
-            # Avoid division by zero if cc_ens is 0
-            if cc_ens[i] > 0:
-                bcr_ens[i, :] = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+        # Lifetime is at index 205
+        life_sow = int(np.floor(ens[j, 205]))
 
-        # --- 4. Find Optimal Strategy ---
-        mean_tc_per_strategy = np.mean(tc_ens, axis=1)
-        idx_opt_unc = np.argmin(mean_tc_per_strategy)
+        # Discount factors start at index 4
+        dr_sow = ens[j, 4 : 4 + min(life_sow, 201)]
+
+        # Damage factors are the 100 values from index 206 to 305
+        dd_damage_sow = ens[j, 206:306]
         
-        opt_h_unc = delta_h_seq[idx_opt_unc]
-        opt_tc = mean_tc_per_strategy[idx_opt_unc]
-        opt_rel = np.mean(lr_ens[idx_opt_unc, :])
-        opt_bcr = np.mean(bcr_ens[idx_opt_unc, :])
+        led_ens[i, j] = lifetime_expected_damages(
+            struc_value, init_elev, dh, life_sow, dr_sow, mu_sow, 
+            sigma_sow, xi_sow, dd_depths, dd_damage_sow
+            )
+        lr_ens[i, j] = lifetime_reliability(
+            life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
+            )
+
+# --- 3. Calculate Derived Objectives ---
+mean_led_per_strategy = np.mean(led_ens, axis=1)
+if verbose:
+    print("Lifetime expected damages per strategy")
+    print(mean_led_per_strategy)
+    print("Construction cost per strategy")
+    print(cc_ens)
+tc_ens = led_ens + cc_ens[:, np.newaxis]
+bcr_ens = np.zeros((num_strat, current_nsow))
+for i in range(1, num_strat):
+    # Avoid division by zero if cc_ens is 0
+    if cc_ens[i] > 0:
+        bcr_ens[i, :] = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+
+# --- 4. Find Optimal Strategy ---
+mean_tc_per_strategy = np.mean(tc_ens, axis=1)
+if verbose: 
+    print(mean_tc_per_strategy)
+idx_opt_unc = np.argmin(mean_tc_per_strategy)
         
-        # Calculate Robustness (Satisficing)
-        robustness_mask = (
-            (bcr_ens[idx_opt_unc, :] > 1) & 
-            (lr_ens[idx_opt_unc, :] > 0.5) & 
-            ((tc_ens[idx_opt_unc, :] / struc_value) < 1)
-        )
-        robustness_score = np.mean(robustness_mask) * 100
+opt_h_unc = delta_h_seq[idx_opt_unc]
+opt_tc = mean_tc_per_strategy[idx_opt_unc]
+opt_rel = np.mean(lr_ens[idx_opt_unc, :])
+opt_bcr = np.mean(bcr_ens[idx_opt_unc, :])
         
-        # --- 5. Store Results ---
-        convergence_results.append({
-            'nsow': current_nsow,
-            'iteration': it + 1,
-            'optimal_height': opt_h_unc,
-            'mean_total_cost': opt_tc,
-            'mean_reliability': opt_rel,
-            'mean_bcr': opt_bcr,
-            'satisficing_score': robustness_score
-        })
+# Calculate Robustness (Satisficing)
+robustness_mask = (
+    (bcr_ens[idx_opt_unc, :] > 1) & 
+    (lr_ens[idx_opt_unc, :] > 0.5) & 
+    ((tc_ens[idx_opt_unc, :] / struc_value) < 1)
+)
+robustness_score = np.mean(robustness_mask) * 100
+        
+# --- 5. Store Results ---
+convergence_results = []
+convergence_results.append({
+    'nsow': current_nsow,
+    'optimal_height': opt_h_unc,
+    'mean_total_cost': opt_tc,
+    'mean_reliability': opt_rel,
+    'mean_bcr': opt_bcr,
+    'satisficing_score': robustness_score
+})
 
 # --- 6. Final Output ---
 # Convert results to DataFrame for easy viewing and saving
@@ -578,6 +560,124 @@ print("CONVERGENCE TESTING RESULTS")
 print("="*60)
 print(df_convergence)
 
-# Optional: Save results to CSV so you can analyze or plot them later
-df_convergence.to_csv('convergence_testing_results.csv', index=False)
-print("\nResults saved to 'convergence_testing_results.csv'")
+## ------------------------------------------------------------------
+## CONVERGENCE TESTING & UNCERTAINTY ENSEMBLES
+## ------------------------------------------------------------------
+
+# # Set parameters for convergence testing
+# nsow_values = [10, 100, 1000, 10000]
+# iterations = 10
+# rng = np.random.default_rng()
+
+# # Read in data files (Load outside the loop to save time)
+# obs_discount = pd.read_csv('discount.csv')
+# mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
+# sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
+# xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
+
+# # List to store our convergence results
+# convergence_results = []
+# num_strat = len(delta_h_seq)
+
+# print("Starting Convergence Testing...\n")
+
+# # Outer loop: Iterate through different sample sizes
+# for current_nsow in nsow_values:
+#     print(f"Testing nsow = {current_nsow}...")
+    
+#     # Inner loop: Run iterations for the current sample size
+#     for it in range(iterations):
+#         if verbose: print(f"\tIteration {it+1}/{iterations}")
+        
+#         # --- 1. Generate Uncertainties for this iteration ---
+#         dr_unc = discount_rate_unc(obs_discount, current_nsow)
+#         lt_unc = lifetime_unc(current_nsow)
+#         ddf_unc = depth_damage_unc(current_nsow)
+#         gev_unc = gev_param_unc(current_nsow, mu_chain, sigma_chain, xi_chain)
+        
+#         # Allocate ensemble array and perform LHS
+#         ens = np.empty((current_nsow, 255))
+#         sampler = qmc.LatinHypercube(d=4)
+#         sample = sampler.random(n=current_nsow)
+        
+#         i_sow = np.floor(sample * current_nsow).astype(int)
+#         # Avoid sampling row 0 (depths) for the depth-damage function
+#         i_sow[:, 3] = np.floor(sample[:, 3] * (current_nsow - 2)).astype(int) + 1
+        
+#         # Map parameters to ensemble matrix
+#         ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
+#         ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
+#         ens[:, 204] = lt_unc[i_sow[:,2]]             
+#         ens[:, 205:255] = ddf_unc[i_sow[:,3], :]     
+        
+#         # --- 2. Evaluate Strategies ---
+#         led_ens = np.zeros((num_strat, current_nsow))
+#         cc_ens = np.zeros(num_strat)
+#         lr_ens = np.zeros((num_strat, current_nsow))
+#         dd_depths = ddf_unc[0, :]
+        
+#         for i, dh in enumerate(delta_h_seq):
+#             cc_ens[i] = construction_cost(dh, sqft)
+#             for j in range(current_nsow):
+#                 mu_sow, sigma_sow, xi_sow = ens[j, 0:3]
+#                 life_sow = int(np.floor(ens[j, 204]))
+#                 dr_sow = ens[j, 3 : 3 + min(life_sow, 201)]
+#                 dd_damage_sow = ens[j, 205:255]
+                
+#                 # Use your corrected lifetime_expected_damages function here
+#                 led_ens[i, j] = lifetime_expected_damages(
+#                     struc_value, init_elev, dh, life_sow, 
+#                     dr_sow, mu_sow, sigma_sow, xi_sow, dd_depths, dd_damage_sow
+#                 )
+#                 lr_ens[i, j] = lifetime_reliability(
+#                     life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
+#                 )
+
+#         # --- 3. Calculate Derived Objectives ---
+#         tc_ens = led_ens + cc_ens[:, np.newaxis]
+#         bcr_ens = np.zeros((num_strat, current_nsow))
+#         for i in range(1, num_strat):
+#             # Avoid division by zero if cc_ens is 0
+#             if cc_ens[i] > 0:
+#                 bcr_ens[i, :] = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+
+#         # --- 4. Find Optimal Strategy ---
+#         mean_tc_per_strategy = np.mean(tc_ens, axis=1)
+#         idx_opt_unc = np.argmin(mean_tc_per_strategy)
+        
+#         opt_h_unc = delta_h_seq[idx_opt_unc]
+#         opt_tc = mean_tc_per_strategy[idx_opt_unc]
+#         opt_rel = np.mean(lr_ens[idx_opt_unc, :])
+#         opt_bcr = np.mean(bcr_ens[idx_opt_unc, :])
+        
+#         # Calculate Robustness (Satisficing)
+#         robustness_mask = (
+#             (bcr_ens[idx_opt_unc, :] > 1) & 
+#             (lr_ens[idx_opt_unc, :] > 0.5) & 
+#             ((tc_ens[idx_opt_unc, :] / struc_value) < 1)
+#         )
+#         robustness_score = np.mean(robustness_mask) * 100
+        
+#         # --- 5. Store Results ---
+#         convergence_results.append({
+#             'nsow': current_nsow,
+#             'iteration': it + 1,
+#             'optimal_height': opt_h_unc,
+#             'mean_total_cost': opt_tc,
+#             'mean_reliability': opt_rel,
+#             'mean_bcr': opt_bcr,
+#             'satisficing_score': robustness_score
+#         })
+
+# # --- 6. Final Output ---
+# # Convert results to DataFrame for easy viewing and saving
+# df_convergence = pd.DataFrame(convergence_results)
+
+# print("\n" + "="*60)
+# print("CONVERGENCE TESTING RESULTS")
+# print("="*60)
+# print(df_convergence)
+
+# # Optional: Save results to CSV so you can analyze or plot them later
+# df_convergence.to_csv('convergence_testing_results.csv', index=False)
+# print("\nResults saved to 'convergence_testing_results.csv'")
