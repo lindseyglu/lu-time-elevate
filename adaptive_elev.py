@@ -29,7 +29,7 @@ struc_value = 300000
 del_elev = -4           # difference in house elev and BFE
 life_span = 30
 dr_i = np.arange(201)
-disc_rate = np.exp(-1 * (0.04 * dr_i))      # **needs to be changed**
+disc_rate = np.exp(-1 * (0.04 * dr_i))
 bfe = 34.7              # generated in the R code
 # Initial house elev
 init_elev = bfe + del_elev
@@ -60,6 +60,10 @@ depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
 
 ## Total cost is lifetime expected damages + construction cost
+
+## ------------------------------------------------------------------
+## OBJECTIVES FUNCTIONS
+## ------------------------------------------------------------------
 
 # Step 1: Calculate lifetime expected damages
 def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_rate, mu, sigma, xi, DD_Depth, DD_Damage):
@@ -298,7 +302,9 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
 #     print(f"\tSatisfies reliability: {mass_sa[1]}")
 #     print(f"\tSatisfies total cost / structure value: {mass_sa[2]}")
 
-## Create uncertainty ensembles
+## ------------------------------------------------------------------
+## UNCERTAINTY FUNCTIONS
+## ------------------------------------------------------------------
 
 # Consider 4 uncertainties:
 # 1. Discount rate [deep]
