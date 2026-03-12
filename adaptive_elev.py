@@ -66,6 +66,7 @@ damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,6
 ## ------------------------------------------------------------------
 
 # Step 1: Calculate lifetime expected damages
+# Note: Need to vectorize this function
 def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_rate, mu, sigma, xi, DD_Depth, DD_Damage):
     """
     Docstring for lifetime_expected_damages
@@ -158,6 +159,7 @@ def construction_cost(delta_h, sqft):
 ## Reliability (safety)
 
 # Step 3: Calculate reliability (probability of not being flooded at all during the lifetime of the house)
+# Note: Need to vectorize this function
 def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     """
     Docstring for lifetime_reliability
@@ -722,3 +724,99 @@ def plot_convergence(df, heights_to_plot=[3, 9, 14]):
 
 # Run the plotting function
 plot_convergence(df_convergence)
+
+## ------------------------------------------------------------------
+## GENERATE PARETO FRONT
+## ------------------------------------------------------------------
+
+# Set parameters
+delta_h_seq = np.linspace(start=0, stop=14, num=15)
+nsow = 10000
+num_strat = len(delta_h_seq)
+results = []
+
+# Read in data files (Load outside the loop to save time)
+obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
+mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()         # mu chain generated from R
+sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
+xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
+
+# --- 1. Generate Uncertainties for this iteration ---
+dr_unc = discount_rate_unc(obs_discount, nsow)
+lt_unc = lifetime_unc(nsow)
+ddf_unc = depth_damage_unc(nsow)
+gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
+
+# Allocate ensemble array and perform Latin hypercube sampling
+ens = np.empty((nsow, 255))
+sampler = qmc.LatinHypercube(d=4)
+sample = sampler.random(n=nsow)
+
+i_sow = np.floor(sample * nsow).astype(int)
+# Avoid sampling row 0 (depths) for the depth-damage function
+i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
+
+# Map parameters to ensemble matrix
+ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
+ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
+ens[:, 204] = lt_unc[i_sow[:,2]]             
+ens[:, 205:255] = ddf_unc[i_sow[:,3], :]     
+
+# --- 2. Evaluate Strategies ---
+led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
+cc_ens = np.zeros(num_strat)            # allocate construction cost
+lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
+dd_depths = ddf_unc[0, :]
+
+# Determine construction cost, lifetime damages, and reliability for each SOW in each strategy
+for i, dh in enumerate(delta_h_seq):
+    cc_ens[i] = construction_cost(dh, sqft)
+    for j in range(nsow):
+        mu_sow, sigma_sow, xi_sow = ens[j, 0:3]     # get mu, sigma, and xi from ensemble
+        life_sow = int(np.floor(ens[j, 204]))       # get houselifetime from ensemble
+        dr_sow = ens[j, 3 : 3 + min(life_sow, 201)] # get discount rate from ensemble
+        dd_damage_sow = ens[j, 205:255]             # get damage values from ensemble
+        
+        led_ens[i, j] = lifetime_expected_damages(
+            struc_value, init_elev, dh, life_sow, 
+            dr_sow, mu_sow, sigma_sow, xi_sow, dd_depths, dd_damage_sow
+        )
+        lr_ens[i, j] = lifetime_reliability(
+            life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
+        )
+
+# --- 3. Calculate Objectives for ALL strategies ---
+tc_ens = led_ens + cc_ens[:, np.newaxis]
+
+# Loop through each strategy to calculate means and satisficing
+for i, dh in enumerate(delta_h_seq):
+    # Calculate BCR (only if dh > 0)
+    if dh > 0:
+        bcr_array = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+        mean_bcr = np.mean(bcr_array)
+    else:
+        bcr_array = np.zeros(nsow)
+        mean_bcr = np.nan # BCR isn't applicable for dh=0
+
+    mean_tc = np.mean(tc_ens[i, :])
+    mean_rel = np.mean(lr_ens[i, :])
+    
+    # Robustness / Satisficing Score for THIS strategy
+    robustness_mask = (
+        (bcr_array > 1) & 
+        (lr_ens[i, :] > 0.5) & 
+        ((tc_ens[i, :] / struc_value) < 1)
+    )
+    robustness_score = np.mean(robustness_mask) * 100
+    
+    # --- 4. Store Results for every height ---
+    results.append({
+        'nsow': nsow,
+        'dh': dh,
+        'total_cost': mean_tc,
+        'bcr': mean_bcr,
+        'reliability': mean_rel,
+        'satisficing': robustness_score
+    })
+
+# Plot the pareto front of total cost and lifetime reliability
