@@ -15,6 +15,8 @@ from scipy.stats import genextreme
 from scipy.stats import weibull_min
 from scipy.stats import uniform
 from scipy.stats import qmc             # for Latin Hypercube Sampling
+import matplotlib
+matplotlib.use('Agg')                   # Use the 'Agg' backend to avoid the Qt/DBus error while plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -569,7 +571,7 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 ## ------------------------------------------------------------------
 
 # Set parameters for convergence testing
-delta_h_seq = np.array([3,9,14])
+delta_h_seq = np.array([0,3,9,14])
 nsow_values = [10, 100, 1000, 10000]
 iterations = 10
 rng = np.random.default_rng()
@@ -638,51 +640,79 @@ for current_nsow in nsow_values:
                     life_sow, mu_sow, sigma_sow, xi_sow, init_elev, dh
                 )
 
-        # --- 3. Calculate Derived Objectives ---
+        # --- 3. Calculate Objectives for ALL strategies ---
         tc_ens = led_ens + cc_ens[:, np.newaxis]
-        bcr_ens = np.zeros((num_strat, current_nsow))
-        for i in range(1, num_strat):
-            # Avoid division by zero if cc_ens is 0
-            if cc_ens[i] > 0:
-                bcr_ens[i, :] = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+        
+        # Loop through each strategy to calculate means and satisficing
+        for i, dh in enumerate(delta_h_seq):
+            # Calculate BCR (only if dh > 0)
+            if dh > 0:
+                bcr_array = (led_ens[0, :] - led_ens[i, :]) / cc_ens[i]
+                mean_bcr = np.mean(bcr_array)
+            else:
+                bcr_array = np.zeros(current_nsow)
+                mean_bcr = np.nan # BCR isn't applicable for dh=0
 
-        # --- 4. Find Optimal Strategy ---
-        mean_tc_per_strategy = np.mean(tc_ens, axis=1)
-        idx_opt_unc = np.argmin(mean_tc_per_strategy)
-        
-        opt_h_unc = delta_h_seq[idx_opt_unc]
-        opt_tc = mean_tc_per_strategy[idx_opt_unc]
-        opt_rel = np.mean(lr_ens[idx_opt_unc, :])
-        opt_bcr = np.mean(bcr_ens[idx_opt_unc, :])
-        
-        # Calculate Robustness (Satisficing)
-        robustness_mask = (
-            (bcr_ens[idx_opt_unc, :] > 1) & 
-            (lr_ens[idx_opt_unc, :] > 0.5) & 
-            ((tc_ens[idx_opt_unc, :] / struc_value) < 1)
-        )
-        robustness_score = np.mean(robustness_mask) * 100
-        
-        # --- 5. Store Results ---
-        convergence_results.append({
-            'nsow': current_nsow,
-            'iteration': it + 1,
-            'optimal_height': opt_h_unc,
-            'mean_total_cost': opt_tc,
-            'mean_reliability': opt_rel,
-            'mean_bcr': opt_bcr,
-            'satisficing_score': robustness_score
-        })
+            mean_tc = np.mean(tc_ens[i, :])
+            mean_rel = np.mean(lr_ens[i, :])
+            
+            # Robustness / Satisficing Score for THIS strategy
+            robustness_mask = (
+                (bcr_array > 1) & 
+                (lr_ens[i, :] > 0.5) & 
+                ((tc_ens[i, :] / struc_value) < 1)
+            )
+            robustness_score = np.mean(robustness_mask) * 100
+            
+            # --- 4. Store Results for every height ---
+            convergence_results.append({
+                'nsow': current_nsow,
+                'iteration': it + 1,
+                'dh': dh,
+                'total_cost': mean_tc,
+                'bcr': mean_bcr,
+                'reliability': mean_rel,
+                'satisficing': robustness_score
+            })
 
-# --- 6. Final Output ---
-# Convert results to DataFrame for easy viewing and saving
+# Convert to DataFrame
 df_convergence = pd.DataFrame(convergence_results)
+df_convergence.to_csv('convergence_data_full.csv', index=False)
+print("\nResults saved to 'convergence_data_full.csv'")
 
 print("\n" + "="*60)
 print("CONVERGENCE TESTING RESULTS")
 print("="*60)
 print(df_convergence)
 
-# Optional: Save results to CSV so you can analyze or plot them later
-df_convergence.to_csv('convergence_testing_results_1.csv', index=False)
-print("\nResults saved to 'convergence_testing_results_1.csv'")
+## ------------------------------------------------------------------
+## PLOT CONVERGENCE TESTING
+## ------------------------------------------------------------------
+def plot_convergence(df, heights_to_plot=[3, 9, 14]):
+    metrics = ['total_cost', 'bcr', 'reliability']
+    titles = ['Total Cost ($)', 'Benefit-Cost Ratio', 'Lifetime Reliability']
+    
+    for height in heights_to_plot:
+        # Filter data for specific height
+        data_subset = df[df['dh'] == height]
+        
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        fig.suptitle(f'Convergence Analysis for Heightening Strategy dh = {height}ft', fontsize=16)
+        
+        for idx, metric in enumerate(metrics):
+            # Using stripplot to show all 10 points (iterations) per nsow
+            sns.stripplot(ax=axes[idx], data=data_subset, x='nsow', y=metric, 
+                          jitter=0.2, alpha=0.6, palette="viridis")
+            
+            # Add a line to show the trend of the mean across iterations
+            sns.pointplot(ax=axes[idx], data=data_subset, x='nsow', y=metric, 
+                          color='black', markers='D', scale=0.5)
+            
+            axes[idx].set_title(titles[idx])
+            axes[idx].grid(True, linestyle='--', alpha=0.7)
+            
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.savefig(f'convergence_dh_{height}')
+
+# Run the plotting function
+plot_convergence(df_convergence)
