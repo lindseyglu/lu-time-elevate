@@ -745,9 +745,8 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 delta_h_seq = np.linspace(start=0, stop=14, num=15)
 nsow = 10000
 num_strat = len(delta_h_seq)
-results = []
 
-# Read in data files (Load outside the loop to save time)
+# Read in data files
 obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
 mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()         # mu chain generated from R
 sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
@@ -782,7 +781,7 @@ lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
 # Get GEV parameters and house lifetime outside of the loop
 mus, sigmas, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
 lifespans = ens[:, 204]                             # get house lifetime from ensemble
-drs = ens[:, 3 : 3 + min(life_sow, 201)]            # get discount rate from ensemble
+drs = ens[:, 3:204]                                 # get discount rates from ensemble (trimmed to house lifetime in led function)
 dd_depths = ddf_unc[0, :]                           # depths are the same regardles of SOW
 dd_damages = ens[:, 205:255]                        # get damage values from ensemble
 
