@@ -23,6 +23,9 @@ import seaborn as sns
 # Set print
 verbose = False
 
+# Set rng
+rng = np.random.default_rng()
+
 # Set deterministic house characteristics and discount rate
 sqft = 1500
 struc_value = 300000
