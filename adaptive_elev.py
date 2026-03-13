@@ -23,7 +23,7 @@ import seaborn as sns
 # Set print
 verbose = False
 
-# Set house characteristics and discount rate
+# Set deterministic house characteristics and discount rate
 sqft = 1500
 struc_value = 300000
 del_elev = -4           # difference in house elev and BFE
@@ -74,52 +74,66 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     :param struc_value: structure value
     :param init_elev: initial house elevation
     :param delta_h: height the house is being raised by
-    :param life_span: house lifespan
+    :param life_span: house lifespan (shape: (nsow,))
     :param disc_rate: array of discount rates for each year of the house lifespan
-    :param mu: location parameter for generalized extreme value (GEV) distribution
-    :param sigma: scale parameter for GEV
-    :param xi: shape parameter for GEV
+    :param mu: location parameter for generalized extreme value (GEV) distribution (shape: (nsow,))
+    :param sigma: scale parameter for GEV (shape: (nsow,))
+    :param xi: shape parameter for GEV (shape: (nsow,))
     :param DD_Depth: depths from the depth-damage function, defined relative to FFE
     :param DD_Damage: damage factor from the depth-damage function, defined out of 100
     """
+    nsow = len(mu)
     curr_elev = init_elev + delta_h # elevation of house after being elevated
     
     # Damage value lost at each depth, which depends on house value
-    damage_vals = (DD_Damage/100) * struc_value
+    damage_vals = (DD_Damage/100) * struc_value     # shape: (num_depths,)
 
     # Critical depths are depths where the damage factor changes.
-    crit_depths = DD_Depth + curr_elev # Calculates the stage of critical depths
+    # Calculates the stage of critical depths
+    crit_depths = DD_Depth + curr_elev              # shape: (num_depths,)
 
     # Probability that water level exceeds each critical depth in one year
     # When c < 0, Frechet-type tail
-    crit_probs = 1 - genextreme.cdf(x=crit_depths, c=-xi, loc=mu, scale=sigma)
+    # We reshape parameters to (nsow, 1) to broadcast against crit_depths (num_depths,)
+    # Resulting crit_probs shape: (nsow, num_depths)
+    crit_probs = 1 - genextreme.cdf(
+        x=crit_depths[np.newaxis,:], 
+        c=-xi[np.newaxis,:], 
+        loc=mu[np.newaxis,:], 
+        scale=sigma[np.newaxis,:]
+    )
 
-    # Block avoids NaNs and NAs
-    if np.any(np.isnan(crit_probs)):
-        # Generate samples to find the empirical range of the distribution
-        test_x = genextreme.rvs(c=-xi, loc=mu, scale=sigma, size=10**6)
-        
-        # Where crit_probs is NaN, check if depth is below min or above max observed
-        mask_nan = np.isnan(crit_probs)
-        crit_probs[mask_nan & (crit_depths < np.min(test_x))] = 0
-        crit_probs[mask_nan & (crit_depths > np.max(test_x))] = 1
-        
-        # If NaNs still exist after clamping, raise error
-        if np.any(np.isnan(crit_probs)):
-            raise ValueError("I dont know what to do.... (NaNs persisted in crit_probs)")
+    # Handles NaNs across the matrix
+    # Math: GEV has a boundary at loc - (scale / c)
+    # Since we use c = -xi, the boundary is at: mu + (sigma / xi)
+    boundary = mu + (sigma / xi)
+    
+    # Use np.where to check depths against the theoretical limits of the distribution
+    # If xi > 0 (Weibull/Frechet tail), the distribution is bounded on ONE side.
+    for row in range(nsow):
+        if xi[row] > 0: # Upper bound exists
+            mask_above = crit_depths > boundary[row]
+            crit_probs[row, mask_above] = 0.0
+        elif xi[row] < 0: # Lower bound exists
+            mask_below = crit_depths < boundary[row]
+            crit_probs[row, mask_below] = 1.0
+
+    # Final safety catch for floating point precision issues
+    crit_probs = np.nan_to_num(crit_probs, nan=0.0)
 
     # Calculate the expected annual damages (EAD)
-    EADfrac = np.empty(len(crit_depths))
-    for i in range(len(crit_depths)):
-        if i==len(crit_depths)-1:
-            EADfrac[i] = crit_probs[i] * damage_vals[i]
-        else:
-            EADfrac[i] = (crit_probs[i] - crit_probs[i+1]) * damage_vals[i]
-    EAD = sum(EADfrac)
+    prob_diffs = -np.diff(crit_probs, axis=1, append=0)
+    ead = np.sum(prob_diffs * damage_vals, axis=1)
 
-    # [ensure that disc_rate is the same length as the lifespan]
-    disc_sum = sum(disc_rate)
-    exp_dam = EAD*disc_sum
+    # Apply discount rate and lifespan
+    # Create a mask: True if year < house_lifetime
+    years_i = np.arange(disc_rate.shape[1])
+    lifespan_mask = years_i < life_span[:, np.newaxis]
+    # Sum only the discount rates that fall within the house's life
+    disc_sums = np.sum(disc_rate * lifespan_mask, axis=1)
+    
+    # Calculate expected damage
+    exp_dam = disc_sums * ead
 
     return exp_dam
 
@@ -773,7 +787,7 @@ for i, dh in enumerate(delta_h_seq):
     cc_ens[i] = construction_cost(dh, sqft)
     for j in range(nsow):
         mu_sow, sigma_sow, xi_sow = ens[j, 0:3]     # get mu, sigma, and xi from ensemble
-        life_sow = int(np.floor(ens[j, 204]))       # get houselifetime from ensemble
+        life_sow = int(np.floor(ens[j, 204]))       # get house lifetime from ensemble
         dr_sow = ens[j, 3 : 3 + min(life_sow, 201)] # get discount rate from ensemble
         dd_damage_sow = ens[j, 205:255]             # get damage values from ensemble
         
