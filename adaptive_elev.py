@@ -4,8 +4,7 @@ Filename: adaptive_elev.py
 Author: Lindsey Lu
 Created: 2026-02-05
 Version: 1.0
-Description: Deterministic cost function that takes in house 
-characteristics and determines the cost function
+Description: 
 """
 
 # import libraries
@@ -44,7 +43,7 @@ if verbose:
     print(f"Base flood elevation: {bfe}")
     print(f"Discount rate: {disc_rate}")
 
-# Set GEV parameters (currently using GEV from Zarekarizi et al. 2020)
+# Set GEV parameters (currently using GEV from Zarekarizi et al. 2020 - R code generated)
 mu = 19.8718901487264
 sigma = 3.16814792683425
 xi = 0.00515921024408503
@@ -61,8 +60,6 @@ delta_h_seq = np.array([0,3,4,5,6,7,8,9,10,11,12,13,14])
 # HAZUS DDF:
 depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
-
-## Total cost is lifetime expected damages + construction cost
 
 ## ------------------------------------------------------------------
 ## OBJECTIVES FUNCTIONS
@@ -172,8 +169,6 @@ def construction_cost(delta_h, sqft):
     
     return(raise_cost)
 
-## Reliability (safety)
-
 # Step 3: Calculate reliability (probability of not being flooded at all during the lifetime of the house)
 def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     """
@@ -193,11 +188,7 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     safety = genextreme.cdf(x=curr_elev, c=-xi, loc=mu, scale=sigma) ** (life_span//1)
     return(safety)
 
-## Benefit-cost ratio
-# Benefit is the cost of not elevating (delta_h=0) minus the cost of elevating
-# BCR is benefit divided by the construction cost
-
-## Satisficing (robustness)
+# Evaluate satisficing criteria (robustness)
 # From Zarekarizi et al. 2020: BCR > 1, reliability > 0.5, total cost/structure value < 1
 def satisficing_all(bcr, reliability, total_cost, struc_val):
     """
@@ -323,7 +314,7 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
 ## UNCERTAINTY FUNCTIONS
 ## ------------------------------------------------------------------
 
-# Consider 4 uncertainties:
+# Consider 5 uncertainties:
 # 1. Discount rate [deep]
 #       a. random walk
 #       b. mean-reverting
@@ -335,6 +326,8 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
 #       b. HAZUS (uniform 30% unc)
 # 4. Flooding frequency
 #       a. GEV distribution
+# 5. House value
+#       a. simple linear function
 
 # 1. Discount rate
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
@@ -830,4 +823,12 @@ for i, dh in enumerate(delta_h_seq):
         'satisficing': robustness_scores[i]
     })
 
+df_results = pd.DataFrame(results)
+df_results.to_csv('objectives.csv', index=False)
+if verbose: print("\nResults saved to 'objectives.csv'")
+
 # Plot the pareto front of total cost and lifetime reliability
+# Write this code so that it can read in a results csv for plotting
+# This prevents needing conduct the analysis over and over again
+
+# Read in csv
