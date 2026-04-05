@@ -832,3 +832,9 @@ if verbose: print("\nResults saved to 'objectives.csv'")
 # This prevents needing conduct the analysis over and over again
 
 # Read in csv
+objs = pd.read_csv('objectives.csv')
+# Plot total cost on the x-axis, reliability on the y-axis, height is color
+plt.plot('total_cost', 'reliability', c='dh', data=objs)
+plt.xlabel('Total cost [$]')
+plt.ylabel('Reliability')
+plt.show()
