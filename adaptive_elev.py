@@ -96,10 +96,10 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     # We reshape parameters to (nsow, 1) to broadcast against crit_depths (num_depths,)
     # Resulting crit_probs shape: (nsow, num_depths)
     crit_probs = 1 - genextreme.cdf(
-        x=crit_depths[np.newaxis,:], 
-        c=-xi[np.newaxis,:], 
-        loc=mu[np.newaxis,:], 
-        scale=sigma[np.newaxis,:]
+        x=crit_depths,              # Shape: (num_depths,)
+        c=-xi[:,np.newaxis],        # Shape: (nsow, 1)
+        loc=mu[:,np.newaxis],       # Shape: (nsow, 1)
+        scale=sigma[:,np.newaxis]   # Shape: (nsow, 1)
     )
 
     # Handles NaNs across the matrix
@@ -738,7 +738,7 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 ## ------------------------------------------------------------------
 
 # Set parameters
-delta_h_seq = np.linspace(start=0, stop=14, num=15)
+delta_h_seq = np.linspace(start=0, stop=14, num=30)
 nsow = 10000
 num_strat = len(delta_h_seq)
 
@@ -817,6 +817,7 @@ for i, dh in enumerate(delta_h_seq):
     results.append({
         'nsow': nsow,
         'dh': dh,
+        'upfront_cost': cc_ens[i],
         'total_cost': np.mean(tc_ens[i, :]),
         'bcr': np.mean(bcr_ens[i, :]) if dh > 0 else np.nan,
         'reliability': np.mean(lr_ens[i, :]),
@@ -834,7 +835,7 @@ if verbose: print("\nResults saved to 'objectives.csv'")
 # Read in csv
 objs = pd.read_csv('objectives.csv')
 # Plot total cost on the x-axis, reliability on the y-axis, height is color
-plt.plot('total_cost', 'reliability', c='dh', data=objs)
-plt.xlabel('Total cost [$]')
+plt.plot('upfront_cost', 'reliability', 'bo', data=objs)
+plt.xlabel('Upfront cost [$]')
 plt.ylabel('Reliability')
-plt.show()
+plt.savefig(f'upcost_reliability_pareto')
