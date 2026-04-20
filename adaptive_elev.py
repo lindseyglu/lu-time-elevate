@@ -70,22 +70,23 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     """
     Docstring for lifetime_expected_damages
     
-    :param struc_value: structure value
+    :param struc_value: structure value (shape: (nsow, life_span))
     :param init_elev: initial house elevation
     :param delta_h: height the house is being raised by
     :param life_span: house lifespan (shape: (nsow,))
-    :param disc_rate: array of discount rates for each year of the house lifespan
+    :param disc_rate: array of discount rates for each year of the house lifespan (shape: (nsow, life_span))
     :param mu: location parameter for generalized extreme value (GEV) distribution (shape: (nsow,))
     :param sigma: scale parameter for GEV (shape: (nsow,))
     :param xi: shape parameter for GEV (shape: (nsow,))
-    :param DD_Depth: depths from the depth-damage function, defined relative to FFE
-    :param DD_Damage: damage factor from the depth-damage function, defined out of 100
+    :param DD_Depth: depths from the depth-damage function, defined relative to FFE (shape: (num_depths,))
+    :param DD_Damage: damage factor from the depth-damage function, defined out of 100 (shape: (nsow, num_depths))
     """
     nsow = len(mu)
     curr_elev = init_elev + delta_h # elevation of house after being elevated
     
     # Damage value lost at each depth, which depends on house value
-    damage_vals = (DD_Damage/100) * struc_value     # shape: (num_depths,)
+    # shape: (nsow, num_depths, life_span)
+    damage_vals = (DD_Damage[:, :, np.newaxis]/100) * struc_value[:, np.newaxis, :]
 
     # Critical depths are depths where the damage factor changes.
     # Calculates the stage of critical depths
@@ -118,21 +119,23 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
             crit_probs[row, mask_below] = 1.0
 
     # Final safety catch for floating point precision issues
-    crit_probs = np.nan_to_num(crit_probs, nan=0.0)
+    crit_probs = np.nan_to_num(crit_probs, nan=0.0)         # shape: (nsow, num_depths)
 
-    # Calculate the expected annual damages (EAD)
-    prob_diffs = -np.diff(crit_probs, axis=1, append=0)
-    ead = np.sum(prob_diffs * damage_vals, axis=1)
+    # Calculate the expected annual damages (EAD) for each year
+    # Note: it is different each year depending on the house value
+    prob_diffs = -np.diff(crit_probs, axis=1, append=0)     # shape: (nsow, num_depths)
+    ead = np.sum(prob_diffs[:, :, np.newaxis] * damage_vals, axis=1)    # shape: (nsow, life_span)
+    
+    # Apply the year-by-year discount rate
+    disc_ead = ead * disc_rate     # shape: (nsow, life_span)*(nsow, life_span)=(nsow, life_span)
 
-    # Apply discount rate and lifespan
     # Create a mask: True if year < house_lifetime
     years_i = np.arange(disc_rate.shape[1])
     lifespan_mask = years_i < life_span[:, np.newaxis]
-    # Sum only the discount rates that fall within the house's life
-    disc_sums = np.sum(disc_rate * lifespan_mask, axis=1)
     
     # Calculate expected damage
-    exp_dam = disc_sums * ead
+    # Sum across the life_span (axis 1) to get one value per SOW
+    exp_dam = np.sum(disc_ead * lifespan_mask, axis=1)
 
     return exp_dam
 
@@ -390,7 +393,7 @@ def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
         # Prepend 1.0 for year 0
         return np.hstack([np.ones((nsow, 1)), dfactors])
 
-    # 2. Parameters (Best-estimates from script)
+    # 2. Parameters (Best-estimates from R script)
     params_rw = {'rho1': 1.7429, 'rho2': -1.0455, 'rho3': 0.3010, 'sigma_sq': 0.0034}
     params_mrv = {'eta': 3.405, 'rho1': 1.7371, 'rho2': -1.0270, 'rho3': 0.2806, 'sigma_sq': 0.0034}
     params_drift = {'int': 1.9289, 'slope': -0.0058, 'rho1': 1.6965, 'rho2': -0.9755, 'rho3': 0.2388, 'sigma_sq': 0.0033}
@@ -489,14 +492,20 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 
 # 5. House value
 # Dependent on the intensity of flooding
-def house_value_unc(nsow, init_value, delta_h, life_span=200, elev_year=0):
-    # Allocate the matrix
-    val_unc = np.empty(nsow)
-
+def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
     appr_rate = 0.061   # Appreciation based on attractiveness
-    risk_rate = -0.04   # Depreciation rate based on flood risk
-    elev_rate = 0.01    # Impact of each foot of elevation
+    # risk_rate = -0.04   # Depreciation rate based on flood risk
+    # elev_rate = 0.01    # Impact of each foot of elevation
+
+    # Sample appreciation rates across nsows
+    rates = rng.normal(loc=appr_rate, scale=0, size=nsow)   # keep it deterministic right now
+
+    years = np.arange(0, life_span)
+    factor = (1 + rates[:, np.newaxis]) ** years    # make rates shape: (nsow, 1)
+    val_unc = init_value * factor                   # shape: (nsow, life_span)
+
+    return val_unc
 
 
 ## ------------------------------------------------------------------
@@ -764,10 +773,11 @@ dr_unc = discount_rate_unc(obs_discount, nsow)
 lt_unc = lifetime_unc(nsow)
 ddf_unc = depth_damage_unc(nsow)
 gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
+val_unc = house_value_unc(struc_value, nsow)
 
 # Allocate ensemble array and perform Latin hypercube sampling
-ens = np.empty((nsow, 255))
-sampler = qmc.LatinHypercube(d=4)
+ens = np.empty((nsow, 456))
+sampler = qmc.LatinHypercube(d=5)
 sample = sampler.random(n=nsow)
 
 i_sow = np.floor(sample * nsow).astype(int)
@@ -778,26 +788,28 @@ i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
 ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
 ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
 ens[:, 204] = lt_unc[i_sow[:,2]]             
-ens[:, 205:255] = ddf_unc[i_sow[:,3], :]     
+ens[:, 205:255] = ddf_unc[i_sow[:,3], :] 
+ens[:, 255:456] = val_unc[i_sow[:,4], :]
 
 # --- 2. Evaluate Strategies ---
 led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
 cc_ens = np.zeros(num_strat)            # allocate construction cost
 lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
 
-# Get GEV parameters and house lifetime outside of the loop
+# Get parameters outside of the loop
 mus, sigmas, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
 lifespans = ens[:, 204]                             # get house lifetime from ensemble
 drs = ens[:, 3:204]                                 # get discount rates from ensemble (trimmed to house lifetime in led function)
 dd_depths = ddf_unc[0, :]                           # depths are the same regardles of SOW
 dd_damages = ens[:, 205:255]                        # get damage values from ensemble
+house_vals = ens[:, 255:456]                        # get house values (trimmed to house lifetime in led function)
 
 # Determine construction cost, lifetime damages, and reliability for each strategy
 for i, dh in enumerate(delta_h_seq):
     cc_ens[i] = construction_cost(dh, sqft)
 
     led_ens[i, :] = lifetime_expected_damages(
-        struc_value, init_elev, dh, lifespans, 
+        house_vals, init_elev, dh, lifespans, 
         drs, mus, sigmas, xis, dd_depths, dd_damages
     )
     lr_ens[i, :] = lifetime_reliability(
@@ -836,17 +848,5 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('objectives.csv', index=False)
-if verbose: print("\nResults saved to 'objectives.csv'")
-
-# Plot the pareto front of total cost and lifetime reliability
-# Write this code so that it can read in a results csv for plotting
-# This prevents needing conduct the analysis over and over again
-
-# Read in csv
-objs = pd.read_csv('objectives.csv')
-# Plot total cost on the x-axis, reliability on the y-axis, height is color
-plt.plot('upfront_cost', 'reliability', 'bo', data=objs)
-plt.xlabel('Upfront cost [$]')
-plt.ylabel('Reliability')
-plt.savefig(f'upcost_reliability_pareto')
+df_results.to_csv('objectives_evolve_house_val.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_evolve_house_val.csv'")

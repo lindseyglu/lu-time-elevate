@@ -28,7 +28,7 @@ ax1.set_ylabel('Reliability')
 ax1.legend()
 plt.savefig(f'upcost_reliability_pareto')
 
-# Plot upfront cost on the x-axis, reliability on the y-axis
+# Plot total cost on the x-axis, reliability on the y-axis
 fig2, ax2 = plt.subplots()
 ax2.plot('total_cost', 'reliability', 'bo', data=objs_3, label='dh > 3 ft')
 ax2.plot('total_cost', 'reliability', 'ro', data=objs_0, label='dh = 0 ft')
