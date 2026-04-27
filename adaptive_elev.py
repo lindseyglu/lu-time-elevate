@@ -491,19 +491,21 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
     return params_unc
 
 # 5. House value
-# Dependent on the intensity of flooding
+# Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0.061   # Appreciation based on attractiveness
+    appr_rate = 0.035   # Appreciation based on attractiveness
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
     # Sample appreciation rates across nsows
-    rates = rng.normal(loc=appr_rate, scale=0, size=nsow)   # keep it deterministic right now
+    rates = rng.normal(loc=appr_rate, scale=0.03, size=nsow)
 
     years = np.arange(0, life_span)
-    factor = (1 + rates[:, np.newaxis]) ** years    # make rates shape: (nsow, 1)
-    val_unc = init_value * factor                   # shape: (nsow, life_span)
+    factor = (1 + rates[:, np.newaxis]) ** years    # make rates shape: (nsow, 1), factor shape: (nsow, life_span)
+    # Prepend a factor of 1 for year 0
+    factors = np.hstack([np.ones((nsow, 1)), factor])
+    val_unc = init_value * factors                  # shape: (nsow, life_span+1)
 
     return val_unc
 
@@ -848,5 +850,5 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('objectives_evolve_house_val.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evolve_house_val.csv'")
+df_results.to_csv('objectives_evolve_house_val_35_unc.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_evolve_house_val_2.csv'")
