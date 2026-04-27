@@ -4,7 +4,8 @@ Filename: plot.py
 Author: Lindsey Lu
 Created: 2026-04-08
 Version: 1.0
-Description: 
+Description: Plot Pareto fronts and single objective optimization 
+for different methods of evaluating home elevation height
 """
 
 # import libraries
