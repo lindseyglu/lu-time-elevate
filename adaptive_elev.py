@@ -93,13 +93,13 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
 
     # Probability that water level exceeds each critical depth in one year
     # When c < 0, Frechet-type tail
-    # We reshape parameters to (nsow, 1, life_span) to broadcast against crit_depths (1, num_depths, 1)
-    # Resulting crit_probs shape: (nsow, num_depths, life_span)
+    # We reshape parameters to (nsow, 1) to broadcast against crit_depths (1, num_depths, 1)
+    # Resulting crit_probs shape: (nsow, num_depths)
     crit_probs = 1 - fast_gev_cdf(
-        x=crit_depths[np.newaxis,:,np.newaxis],              # Shape: (1, num_depths, 1)
-        c=xi[:,np.newaxis,:],         # Shape: (nsow, 1, life_span)
-        loc=mu[:,np.newaxis,:],       # Shape: (nsow, 1, life_span)
-        scale=sigma[:,np.newaxis,:]   # Shape: (nsow, 1, life_span)
+        x=crit_depths,              # Shape: (1, num_depths, 1)
+        c=xi[:,np.newaxis],         # Shape: (nsow, 1)
+        loc=mu[:,np.newaxis],       # Shape: (nsow, 1)
+        scale=sigma[:,np.newaxis]   # Shape: (nsow, 1)
     )
 
     # NEEDS ALTERING? Final safety catch for floating point precision issues
@@ -107,8 +107,8 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
 
     # Calculate the expected annual damages (EAD) for each year
     # Note: it is different each year depending on the house value and GEV params
-    prob_diffs = -np.diff(crit_probs, axis=1, append=0)     # shape: (nsow, num_depths, life_span)
-    ead = np.sum(prob_diffs * damage_vals, axis=1)          # shape: (nsow, life_span)
+    prob_diffs = -np.diff(crit_probs, axis=1, append=0)     # shape: (nsow, num_depths)
+    ead = np.sum(prob_diffs[:, :, np.newaxis] * damage_vals, axis=1)          # shape: (nsow, life_span)
     
     # Apply the year-by-year discount rate
     disc_ead = ead * disc_rate     # shape: (nsow, life_span)*(nsow, life_span)=(nsow, life_span)
@@ -173,19 +173,10 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
     """
     curr_elev = init_elev + delta_h
 
-    # 1. Calculate the probability of being flooded (nsow, life_span)
+    # Calculate the probability of being flooded (nsow)
     # When c < 0, Frechet-type tail
     prob = fast_gev_cdf(x=curr_elev, c=xi, loc=mu, scale=sigma)
-
-    # 2. Create a mask given the life_span of each SOW, replace extra years with value 1
-    # Create a mask: True if year < life_span
-    years_i = np.arange(prob.shape[1])
-    lifespan_mask = years_i < life_span[:, np.newaxis]
-    prob_mask = np.where(lifespan_mask, prob, 1)    # shape: (nsow, life_span)
-
-    # 3. Find the product across years for each SOW
-    # Safety is probability of zero floods during the expected lifetime of the house
-    safety = np.prod(prob_mask, axis=1)             # shape: (nsow,)
+    safety = prob ** (life_span//1)
 
     return(safety)
 
@@ -366,22 +357,19 @@ def depth_damage_unc(nsow, ddf_type="deep"):
 
 # 4. Flooding frequency (uncertainty around GEV parameters)
 # The GEV parameters are sampled so that they are different for each year
-def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain, life_span=200):
-    # Number of columns should be life_span+1
-    ncol = life_span + 1
-    
+def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
     # Generate random INTEGER indices from 0 to len(mu_chain)-1
     # Re-sample for each year of ife_span
     # replace=True means sampled with replacement
-    indices = rng.choice(len(mu_chain), size=(nsow, ncol), replace=True)
+    indices = rng.choice(len(mu_chain), size=nsow, replace=True)
     
     # Allocate the matrix (nsow rows, 3*ncol cols)
-    params_unc = np.empty((nsow, 3*ncol))
+    params_unc = np.empty((nsow, 3))
     
     # Extract matching values using the integer indices
-    params_unc[:, 0:201] = mu_chain[indices]
-    params_unc[:, 201:402] = sigma_chain[indices]
-    params_unc[:, 402:603] = xi_chain[indices]
+    params_unc[:, 0] = mu_chain[indices]
+    params_unc[:, 1] = sigma_chain[indices]
+    params_unc[:, 2] = xi_chain[indices]
     
     return params_unc
 
@@ -437,11 +425,11 @@ i_sow = np.floor(sample * nsow).astype(int)
 i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
 
 # Map parameters to ensemble matrix
-ens[:, 0:603] = gev_unc[i_sow[:,0], :]         
-ens[:, 603:804] = dr_unc[i_sow[:,1], :]        
-ens[:, 804] = lt_unc[i_sow[:,2]]             
-ens[:, 805:855] = ddf_unc[i_sow[:,3], :] 
-ens[:, 855:1056] = val_unc[i_sow[:,4], :]
+ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
+ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
+ens[:, 204] = lt_unc[i_sow[:,2]]             
+ens[:, 205:255] = ddf_unc[i_sow[:,3], :] 
+ens[:, 255:456] = val_unc[i_sow[:,4], :]
 
 # --- 2. Evaluate Strategies ---
 led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
@@ -449,12 +437,12 @@ cc_ens = np.zeros(num_strat)            # allocate construction cost
 lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
 
 # Get parameters outside of the loop
-mus, sigmas, xis = ens[:, 0:201], ens[:, 201:402], ens[:, 402:603]  # get mu, sigma, and xi from ensemble
-drs = ens[:, 603:804]               # get discount rates from ensemble (trimmed to house lifetime in led function)
-lifespans = ens[:, 804]             # get house lifetime from ensemble
+mus, sigmas, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
+drs = ens[:, 3:204]               # get discount rates from ensemble (trimmed to house lifetime in led function)
+lifespans = ens[:, 204]             # get house lifetime from ensemble
 dd_depths = ddf_unc[0, :]           # depths are the same regardles of SOW
-dd_damages = ens[:, 805:855]        # get damage values from ensemble
-house_vals = ens[:, 855:1056]       # get house values (trimmed to house lifetime in led function)
+dd_damages = ens[:, 205:255]        # get damage values from ensemble
+house_vals = ens[:, 255:456]       # get house values (trimmed to house lifetime in led function)
 
 # Determine construction cost, lifetime damages, and reliability for each strategy
 for i, dh in enumerate(delta_h_seq):
