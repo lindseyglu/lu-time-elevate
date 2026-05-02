@@ -33,8 +33,7 @@ life_span = 30
 dr_i = np.arange(201)
 disc_rate = np.exp(-1 * (0.04 * dr_i))
 bfe = 34.7              # generated in the R code
-# Initial house elev
-init_elev = bfe + del_elev
+init_elev = bfe + del_elev  # Initial house elev
 if verbose: 
     print("House parameters")
     print(f"Structure value: ${struc_value}")
@@ -43,7 +42,7 @@ if verbose:
     print(f"Base flood elevation: {bfe}")
     print(f"Discount rate: {disc_rate}")
 
-# Set GEV parameters (currently using GEV from Zarekarizi et al. 2020 - R code generated)
+# Set deterministic GEV parameters (currently using GEV from Zarekarizi et al. 2020 - R code generated)
 mu = 19.8718901487264
 sigma = 3.16814792683425
 xi = 0.00515921024408503
@@ -96,36 +95,20 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     # When c < 0, Frechet-type tail
     # We reshape parameters to (nsow, 1, life_span) to broadcast against crit_depths (1, num_depths, 1)
     # Resulting crit_probs shape: (nsow, num_depths, life_span)
-    crit_probs = 1 - genextreme.cdf(
+    crit_probs = 1 - fast_gev_cdf(
         x=crit_depths[np.newaxis,:,np.newaxis],              # Shape: (1, num_depths, 1)
-        c=-xi[:,np.newaxis,:],        # Shape: (nsow, 1, life_span)
+        c=xi[:,np.newaxis,:],         # Shape: (nsow, 1, life_span)
         loc=mu[:,np.newaxis,:],       # Shape: (nsow, 1, life_span)
         scale=sigma[:,np.newaxis,:]   # Shape: (nsow, 1, life_span)
     )
 
-    # Handles NaNs across the matrix
-    # Math: GEV has a boundary at loc - (scale / c)
-    # Since we use c = -xi, the boundary is at: mu + (sigma / xi)
-    boundary = mu + (sigma / xi)
-    
-    # NEEDS ALTERING
-    # Use np.where to check depths against the theoretical limits of the distribution
-    # If xi > 0 (Weibull/Frechet tail), the distribution is bounded on ONE side.
-    for row in range(nsow):
-        if xi[row] > 0: # Upper bound exists
-            mask_above = crit_depths > boundary[row]
-            crit_probs[row, mask_above] = 0.0
-        elif xi[row] < 0: # Lower bound exists
-            mask_below = crit_depths < boundary[row]
-            crit_probs[row, mask_below] = 1.0
-
-    # Final safety catch for floating point precision issues
+    # NEEDS ALTERING? Final safety catch for floating point precision issues
     crit_probs = np.nan_to_num(crit_probs, nan=0.0)         # shape: (nsow, num_depths, life_span)
 
     # Calculate the expected annual damages (EAD) for each year
     # Note: it is different each year depending on the house value and GEV params
     prob_diffs = -np.diff(crit_probs, axis=1, append=0)     # shape: (nsow, num_depths, life_span)
-    ead = np.sum(prob_diffs * damage_vals, axis=1)    # shape: (nsow, life_span)
+    ead = np.sum(prob_diffs * damage_vals, axis=1)          # shape: (nsow, life_span)
     
     # Apply the year-by-year discount rate
     disc_ead = ead * disc_rate     # shape: (nsow, life_span)*(nsow, life_span)=(nsow, life_span)
@@ -192,7 +175,7 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
 
     # 1. Calculate the probability of being flooded (nsow, life_span)
     # When c < 0, Frechet-type tail
-    prob = genextreme.cdf(x=curr_elev, c=-xi, loc=mu, scale=sigma)
+    prob = fast_gev_cdf(x=curr_elev, c=xi, loc=mu, scale=sigma)
 
     # 2. Create a mask given the life_span of each SOW, replace extra years with value 1
     # Create a mask: True if year < life_span
@@ -218,7 +201,6 @@ def satisficing_all(bcr, reliability, total_cost, struc_val):
     :param struc_val: house value
     """
     return np.array([bcr>1, reliability>0.5, total_cost/struc_val<1])
-
 
 
 ## ------------------------------------------------------------------
@@ -383,6 +365,7 @@ def depth_damage_unc(nsow, ddf_type="deep"):
     return np.vstack((depths, ret_damage))
 
 # 4. Flooding frequency (uncertainty around GEV parameters)
+# The GEV parameters are sampled so that they are different for each year
 def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain, life_span=200):
     # Number of columns should be life_span+1
     ncol = life_span + 1
@@ -406,12 +389,12 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain, life_span=200):
 # Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0.035   # Appreciation based on attractiveness
+    appr_rate = 0   # Appreciation based on attractiveness
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
     # Sample appreciation rates across nsows
-    rates = rng.normal(loc=appr_rate, scale=0.03, size=nsow)
+    rates = rng.normal(loc=appr_rate, scale=0, size=nsow)
 
     years = np.arange(0, life_span)
     factor = (1 + rates[:, np.newaxis]) ** years    # make rates shape: (nsow, 1), factor shape: (nsow, life_span)
@@ -517,5 +500,17 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('objectives_evolve_house_val_35_unc.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evolve_house_val_2.csv'")
+df_results.to_csv('objectives_evGEV.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_evGEV.csv'")
+
+## ------------------------------------------------------------------
+## DEFINE FUNCTIONS FOR FASTER COMPUTATION
+## ------------------------------------------------------------------
+
+def fast_gev_cdf(x, loc, scale, xi):
+    # Standard GEV formula using NumPy vectorized operations
+    # Note: Using your variable 'xi' directly as the shape param
+    z = (x - loc) / scale
+    # To handle the 1 + xi*z > 0 constraint
+    inner = 1 + xi * z
+    return np.exp(-np.power(np.maximum(inner, 1e-10), -1/xi))
