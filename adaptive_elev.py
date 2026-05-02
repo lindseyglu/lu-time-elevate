@@ -65,7 +65,7 @@ damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,6
 ## ------------------------------------------------------------------
 
 # Step 1: Calculate lifetime expected damages
-def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_rate, mu, sigma, xi, DD_Depth, DD_Damage):
+def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_rate, mu, sigma, xi, DD_Depth, DD_Damage, yr_elev):
     """
     Docstring for lifetime_expected_damages
     
@@ -124,7 +124,7 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     return exp_dam
 
 # Step 2: Calculate construction cost
-def construction_cost(delta_h, sqft):
+def construction_cost(delta_h, sqft, yr_elev, struc_value, disc_rate):
     """
     Docstring for construction_cost
     
@@ -157,7 +157,7 @@ def construction_cost(delta_h, sqft):
     return(raise_cost)
 
 # Step 3: Calculate reliability (probability of not being flooded at all during the lifetime of the house)
-def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
+def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h, yr_elev):
     """
     Docstring for lifetime_reliability
     
@@ -175,8 +175,9 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h):
 
     # Calculate the probability of being flooded (nsow)
     # When c < 0, Frechet-type tail
-    prob = fast_gev_cdf(x=curr_elev, c=xi, loc=mu, scale=sigma)
-    safety = prob ** (life_span//1)
+    prob_init = fast_gev_cdf(x=init_elev, c=xi, loc=mu, scale=sigma)
+    prob_elev = fast_gev_cdf(x=curr_elev, c=xi, loc=mu, scale=sigma)
+    safety = (prob_init ** (yr_elev//1)) * (prob_elev ** ((life_span-yr_elev)//1))
 
     return(safety)
 
@@ -401,6 +402,7 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 delta_h_seq = np.linspace(start=0, stop=14, num=30)
 nsow = 10000
 num_strat = len(delta_h_seq)
+yr_elev = 0     # What year the house is elevated
 
 # Read in data files
 obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
