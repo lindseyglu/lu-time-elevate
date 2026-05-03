@@ -61,6 +61,18 @@ depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
 
 ## ------------------------------------------------------------------
+## DEFINE GEV FUNCTION FOR FASTER COMPUTATION
+## ------------------------------------------------------------------
+
+def fast_gev_cdf(x, c, loc, scale):
+    # Standard GEV formula using NumPy vectorized operations
+    # Note: Using your variable 'xi' directly as the shape param
+    z = (x - loc) / scale
+    # To handle the 1 + xi*z > 0 constraint
+    inner = 1 + c * z
+    return np.exp(-np.power(np.maximum(inner, 1e-10), -1/c))
+
+## ------------------------------------------------------------------
 ## OBJECTIVES FUNCTIONS
 ## ------------------------------------------------------------------
 
@@ -89,27 +101,41 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
 
     # Critical depths are depths where the damage factor changes.
     # Calculates the stage of critical depths
-    crit_depths = DD_Depth + curr_elev              # shape: (num_depths,)
+    crit_depths_elev = DD_Depth + curr_elev              # shape: (num_depths,)
+    crit_depths_init = DD_Depth + init_elev              # shape: (num_depths,)
 
     # Probability that water level exceeds each critical depth in one year
     # When c < 0, Frechet-type tail
     # We reshape parameters to (nsow, 1) to broadcast against crit_depths (1, num_depths, 1)
     # Resulting crit_probs shape: (nsow, num_depths)
-    crit_probs = 1 - fast_gev_cdf(
-        x=crit_depths,              # Shape: (1, num_depths, 1)
+    crit_probs_elev = 1 - fast_gev_cdf(
+        x=crit_depths_elev,              # Shape: (1, num_depths, 1)
+        c=xi[:,np.newaxis],         # Shape: (nsow, 1)
+        loc=mu[:,np.newaxis],       # Shape: (nsow, 1)
+        scale=sigma[:,np.newaxis]   # Shape: (nsow, 1)
+    )
+
+    crit_probs_init = 1 - fast_gev_cdf(
+        x=crit_depths_init,              # Shape: (1, num_depths, 1)
         c=xi[:,np.newaxis],         # Shape: (nsow, 1)
         loc=mu[:,np.newaxis],       # Shape: (nsow, 1)
         scale=sigma[:,np.newaxis]   # Shape: (nsow, 1)
     )
 
     # NEEDS ALTERING? Final safety catch for floating point precision issues
-    crit_probs = np.nan_to_num(crit_probs, nan=0.0)         # shape: (nsow, num_depths, life_span)
+    crit_probs_elev = np.nan_to_num(crit_probs_elev, nan=0.0)         # shape: (nsow, num_depths, life_span)
+    crit_probs_init = np.nan_to_num(crit_probs_init, nan=0.0)         # shape: (nsow, num_depths, life_span)
 
     # Calculate the expected annual damages (EAD) for each year
-    # Note: it is different each year depending on the house value and GEV params
-    prob_diffs = -np.diff(crit_probs, axis=1, append=0)     # shape: (nsow, num_depths)
-    ead = np.sum(prob_diffs[:, :, np.newaxis] * damage_vals, axis=1)          # shape: (nsow, life_span)
-    
+    # Note: it is different each year depending on the house value and whether the house is elevated that year or not
+    prob_diffs_elev = -np.diff(crit_probs_elev, axis=1, append=0)     # shape: (nsow, num_depths)
+    prob_diffs_init = -np.diff(crit_probs_init, axis=1, append=0)     # shape: (nsow, num_depths)
+    ead_elev = np.sum(prob_diffs_elev[:, :, np.newaxis] * damage_vals, axis=1)          # shape: (nsow, life_span)
+    ead_init = np.sum(prob_diffs_init[:, :, np.newaxis] * damage_vals, axis=1)          # shape: (nsow, life_span)
+
+    # Combine elevated and non-elevated EAD
+    ead = np.hstack((ead_init[:,0:yr_elev], ead_elev[:,yr_elev:201]))
+
     # Apply the year-by-year discount rate
     disc_ead = ead * disc_rate     # shape: (nsow, life_span)*(nsow, life_span)=(nsow, life_span)
 
@@ -124,12 +150,16 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     return exp_dam
 
 # Step 2: Calculate construction cost
-def construction_cost(delta_h, sqft, yr_elev, struc_value, disc_rate):
+def construction_cost(delta_h, sqft, yr_elev, disc_rate):
     """
     Docstring for construction_cost
     
     :param delta_h: height the house is being raised by
     :param sqft: house square footage
+    :param yr_elev: year of house elevation
+    :param yr_elev: discount rate (shape: (nsow, life_span))
+
+    :return npv_cost: the NPV cost of raising a house with inflation and discount rate (shape: (nsow,1))
     """
     # Cost of elevating according to CLARA are as the following:
     # 82.5/sqft (3 to 7)
@@ -154,7 +184,15 @@ def construction_cost(delta_h, sqft, yr_elev, struc_value, disc_rate):
     # There is no cost for not elevating the house
     if(delta_h==0): raise_cost=0
     
-    return(raise_cost)
+    # Calculate total inflation (assume a constant 3%)
+    # infl is 1 if yr_elev=0
+    infl = (1+0.03)**yr_elev
+    # Find the disc_rate for the year of elevation
+    dr = disc_rate[:, yr_elev]
+    # Adjust raise_cost by inflation and discount rate
+    npv_cost = raise_cost * infl * dr
+
+    return(npv_cost)
 
 # Step 3: Calculate reliability (probability of not being flooded at all during the lifetime of the house)
 def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h, yr_elev):
@@ -177,7 +215,10 @@ def lifetime_reliability(life_span, mu, sigma, xi, init_elev, delta_h, yr_elev):
     # When c < 0, Frechet-type tail
     prob_init = fast_gev_cdf(x=init_elev, c=xi, loc=mu, scale=sigma)
     prob_elev = fast_gev_cdf(x=curr_elev, c=xi, loc=mu, scale=sigma)
-    safety = (prob_init ** (yr_elev//1)) * (prob_elev ** ((life_span-yr_elev)//1))
+
+    # Need to ensure that yr_elev < life_span, so define a variable (yrs_post) years post-elevation
+    yrs_post = np.where(life_span-yr_elev < 0, 0, life_span-yr_elev)
+    safety = (prob_init ** (yr_elev//1)) * (prob_elev ** (yrs_post//1))
 
     return(safety)
 
@@ -379,11 +420,12 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
     appr_rate = 0   # Appreciation based on attractiveness
+    stdev = 0
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
     # Sample appreciation rates across nsows
-    rates = rng.normal(loc=appr_rate, scale=0, size=nsow)
+    rates = rng.normal(loc=appr_rate, scale=stdev, size=nsow)
 
     years = np.arange(0, life_span)
     factor = (1 + rates[:, np.newaxis]) ** years    # make rates shape: (nsow, 1), factor shape: (nsow, life_span)
@@ -435,7 +477,7 @@ ens[:, 255:456] = val_unc[i_sow[:,4], :]
 
 # --- 2. Evaluate Strategies ---
 led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
-cc_ens = np.zeros(num_strat)            # allocate construction cost
+cc_ens = np.zeros((num_strat, nsow))    # allocate construction cost
 lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
 
 # Get parameters outside of the loop
@@ -448,23 +490,23 @@ house_vals = ens[:, 255:456]       # get house values (trimmed to house lifetime
 
 # Determine construction cost, lifetime damages, and reliability for each strategy
 for i, dh in enumerate(delta_h_seq):
-    cc_ens[i] = construction_cost(dh, sqft)
+    cc_ens[i] = construction_cost(dh, sqft, yr_elev, drs)
 
     led_ens[i, :] = lifetime_expected_damages(
-        house_vals, init_elev, dh, lifespans, 
-        drs, mus, sigmas, xis, dd_depths, dd_damages
+        house_vals, init_elev, dh, lifespans, drs, mus, 
+        sigmas, xis, dd_depths, dd_damages, yr_elev
     )
     lr_ens[i, :] = lifetime_reliability(
-        lifespans, mus, sigmas, xis, init_elev, dh
+        lifespans, mus, sigmas, xis, init_elev, dh, yr_elev
     )
 
 # --- 3. Calculate Objectives ---
 # Total cost
-tc_ens = led_ens + cc_ens[:, np.newaxis]
+tc_ens = led_ens + cc_ens
 
 # BCR for all strategies
 baseline_led = led_ens[0, :]    # Lifetime expected damages if no elevation
-bcr_ens = (baseline_led - led_ens) / cc_ens[:, np.newaxis]
+bcr_ens = (baseline_led - led_ens) / cc_ens
 
 # Robustness (satisficing) for each strategy
 # This creates a boolean mask for all strategies/SOWs at once
@@ -482,7 +524,7 @@ for i, dh in enumerate(delta_h_seq):
     results.append({
         'nsow': nsow,
         'dh': dh,
-        'upfront_cost': cc_ens[i],
+        'upfront_cost': np.mean(cc_ens[i, :]),
         'total_cost': np.mean(tc_ens[i, :]),
         'bcr': np.mean(bcr_ens[i, :]) if dh > 0 else np.nan,
         'reliability': np.mean(lr_ens[i, :]),
@@ -490,17 +532,6 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('objectives_evGEV.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evGEV.csv'")
+df_results.to_csv('objectives_yr10.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_yr10.csv'")
 
-## ------------------------------------------------------------------
-## DEFINE FUNCTIONS FOR FASTER COMPUTATION
-## ------------------------------------------------------------------
-
-def fast_gev_cdf(x, loc, scale, xi):
-    # Standard GEV formula using NumPy vectorized operations
-    # Note: Using your variable 'xi' directly as the shape param
-    z = (x - loc) / scale
-    # To handle the 1 + xi*z > 0 constraint
-    inner = 1 + xi * z
-    return np.exp(-np.power(np.maximum(inner, 1e-10), -1/xi))
