@@ -569,20 +569,20 @@ for current_nsow in nsow_values:
         if verbose: print(f"\tIteration {it+1}/{iterations}")
         
         # --- 1. Generate uncertainties ---
-        dr_unc = discount_rate_unc(obs_discount, nsow)
-        lt_unc = lifetime_unc(nsow)
-        ddf_unc = depth_damage_unc(nsow)
-        gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)
-        val_unc = house_value_unc(struc_value, nsow)
+        dr_unc = discount_rate_unc(obs_discount, current_nsow)
+        lt_unc = lifetime_unc(current_nsow)
+        ddf_unc = depth_damage_unc(current_nsow)
+        gev_unc = gev_param_unc(current_nsow, mu_chain, sigma_chain, xi_chain)
+        val_unc = house_value_unc(struc_value, current_nsow)
         
         # Allocate ensemble array and perform Latin hypercube sampling
-        ens = np.empty((nsow, 1056))        # 201 + 201 + 201 + 201 + 1 + 50 + 201
+        ens = np.empty((current_nsow, 1056))        # 201 + 201 + 201 + 201 + 1 + 50 + 201
         sampler = qmc.LatinHypercube(d=5)
-        sample = sampler.random(n=nsow)
+        sample = sampler.random(n=current_nsow)
 
-        i_sow = np.floor(sample * nsow).astype(int)
+        i_sow = np.floor(sample * current_nsow).astype(int)
         # Avoid sampling row 0 (depths) for the depth-damage function
-        i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
+        i_sow[:, 3] = np.floor(sample[:, 3] * (current_nsow - 2)).astype(int) + 1
 
         # Map parameters to ensemble matrix
         ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
@@ -592,9 +592,9 @@ for current_nsow in nsow_values:
         ens[:, 255:456] = val_unc[i_sow[:,4], :]
         
         # --- 2. Evaluate Strategies ---
-        led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
-        cc_ens = np.zeros((num_strat, nsow))    # allocate construction cost
-        lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
+        led_ens = np.zeros((num_strat, current_nsow))   # allocate lifetime expected damages
+        cc_ens = np.zeros((num_strat, current_nsow))    # allocate construction cost
+        lr_ens = np.zeros((num_strat, current_nsow))    # allocate reliability
 
         # Get parameters outside of the loop
         mus, sigmas, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
@@ -637,7 +637,7 @@ for current_nsow in nsow_values:
         # Store results
         for i, dh in enumerate(delta_h_seq):
             convergence_results.append({
-                'nsow': nsow,
+                'nsow': current_nsow,
                 'iteration': it+1,
                 'dh': dh,
                 'upfront_cost': np.mean(cc_ens[i, :]),
