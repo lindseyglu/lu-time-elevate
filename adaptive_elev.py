@@ -435,6 +435,23 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 
     return val_unc
 
+# 6. Evolving GEV coefficients
+# Sample coefficient values that evolve the location (mu) and scale (sigma) of the GEV function
+def coefficient_unc(nsow):
+    # beta_1 is the coefficient value for mu in the GEV function
+    # where mu(t) = mu_0 + beta_1*t
+    b1 = 0
+    b1_std = 0
+    beta_1 = rng.normal(loc=b1, scale=b1_std, size=(nsow,1))
+
+    # beta_2 is the coefficient value for sigma in the GEV function
+    # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
+    b2 = 0
+    b2_std = 0
+    beta_2 = rng.normal(loc=b2, scale=b2_std, size=(nsow,1))
+
+    coeffs = np.vstack((beta_1, beta_2))
+    return coeffs
 
 ## ------------------------------------------------------------------
 ## GENERATE PARETO FRONT
