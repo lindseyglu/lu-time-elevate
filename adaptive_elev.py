@@ -458,13 +458,19 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0
+    b1 = 0.02
     b1_std = 0
+    # Could use a uniform distribution if there is deep uncertainty
+    # AI is recommending a range from (-0.005, 0.03)
+    # Although it may be more helpful to have a distribution with a central tendency to look at different SLR scenarios
+    # Normal: (0.01, 0.008)
+    # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
     beta_1 = rng.normal(loc=b1, scale=b1_std, size=nsow)
 
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
-    b2 = 0
+    # Normal: (0.001,0.001)
+    b2 = 0.001
     b2_std = 0
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
@@ -479,7 +485,7 @@ def coefficient_unc(nsow):
 delta_h_seq = np.linspace(start=0, stop=14, num=30)
 nsow = 10000
 num_strat = len(delta_h_seq)
-yr_elev = 10     # What year the house is elevated
+yr_elev = 0     # What year the house is elevated
 
 # Read in data files
 obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
