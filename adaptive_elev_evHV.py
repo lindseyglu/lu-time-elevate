@@ -337,7 +337,9 @@ def lifetime_reliability_chunk(life_span, mu, sigma, xi, init_elev, delta_h, yr_
 # 4. Flooding frequency
 #       a. GEV distribution
 # 5. House value
-#       a. simple linear function
+#       a. simple linear function (normal dist)
+# 6. Evolving GEV parameters
+#       a. normal distribution
 
 # 1. Discount rate
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
@@ -500,8 +502,8 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 # Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0   # Appreciation based on attractiveness
-    stdev = 0
+    appr_rate = 0.035   # Appreciation based on attractiveness
+    stdev = 0.02
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
@@ -521,8 +523,8 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0.02
-    b1_std = 0.008
+    b1 = 0
+    b1_std = 0
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
     beta_1 = rng.normal(loc=b1, scale=b1_std, size=nsow)
@@ -530,8 +532,8 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.001
-    b2_std = 0.001
+    b2 = 0
+    b2_std = 0
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
     coeffs = np.column_stack((beta_1, beta_2))
@@ -669,8 +671,8 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('data/objectives_evGEV.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evGEV.csv'")
+df_results.to_csv('data/objectives_evHV.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_evHV.csv'")
 
 
 ## ------------------------------------------------------------------

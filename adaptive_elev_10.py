@@ -500,8 +500,8 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 # Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0   # Appreciation based on attractiveness
-    stdev = 0
+    appr_rate = 0.035   # Appreciation based on attractiveness
+    stdev = 0.02
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
@@ -545,7 +545,7 @@ def coefficient_unc(nsow):
 delta_h_seq = np.linspace(start=0, stop=14, num=30)
 nsow = 100000
 num_strat = len(delta_h_seq)
-yr_elev = 0     # What year the house is elevated
+yr_elev = 10     # What year the house is elevated
 
 # Read in data files
 obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
@@ -669,8 +669,8 @@ for i, dh in enumerate(delta_h_seq):
     })
 
 df_results = pd.DataFrame(results)
-df_results.to_csv('data/objectives_evGEV.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evGEV.csv'")
+df_results.to_csv('data/objectives_evHV_evGEV_10.csv', index=False)
+if verbose: print("\nResults saved to 'objectives_evHV_evGEV_10.csv'")
 
 
 ## ------------------------------------------------------------------
