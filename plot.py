@@ -57,11 +57,11 @@ import numpy as np
 # 1. Load and merge the data
 # File definitions with descriptive labels
 files = {
-    'objectives_yr0.csv': 'Year 0',
-    'objectives_yr10.csv': 'Year 10',
-    'objectives_yr20.csv': 'Year 20',
-    'objectives_yr10_hv3.csv': 'Year 10 (3% Appreciation)'
+    'data/objectives_evHV_evGEV_0.csv': 'Year 0',
+    'data/objectives_evHV_evGEV_10.csv': 'Year 10',
+    'data/objectives_evHV_evGEV_20.csv': 'Year 20'
 }
+num_scen = 3
 
 dfs = []
 for f, label in files.items():
@@ -79,7 +79,7 @@ df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 
 df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
 
 sns.set_theme(style="whitegrid")
-palette = sns.color_palette("husl", 4)
+palette = sns.color_palette("husl", num_scen)
 
 # GRAPH 1: dh vs total_cost
 plt.figure(figsize=(10, 6))
@@ -91,7 +91,7 @@ plt.xlabel('Elevation Height [ft]')
 plt.ylabel('Total Cost [$]')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('total_cost_vs_dh.png')
+plt.savefig('figures/total_cost_vs_dh_yrs.png')
 
 # GRAPH 2: upfront_cost vs reliability
 plt.figure(figsize=(10, 6))
@@ -103,7 +103,7 @@ plt.xlabel('Upfront Cost [$]')
 plt.ylabel('Lifetime Reliability')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('reliability_vs_upfront.png')
+plt.savefig('figures/reliability_vs_upfront_yrs.png')
 
 # GRAPH 3: total_cost vs reliability
 plt.figure(figsize=(10, 6))
@@ -115,4 +115,4 @@ plt.xlabel('Total Cost [$]')
 plt.ylabel('Lifetime Reliability')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('reliability_vs_total_cost.png')
+plt.savefig('figures/reliability_vs_total_cost_yrs.png')

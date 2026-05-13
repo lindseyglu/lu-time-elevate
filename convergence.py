@@ -500,8 +500,8 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 # Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0   # Appreciation based on attractiveness
-    stdev = 0
+    appr_rate = 0.035   # Appreciation based on attractiveness
+    stdev = 0.02
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
@@ -537,140 +537,195 @@ def coefficient_unc(nsow):
     coeffs = np.column_stack((beta_1, beta_2))
     return coeffs
 
-## ------------------------------------------------------------------
-## GENERATE PARETO FRONT
-## ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# CONVERGENCE TESTING & UNCERTAINTY ENSEMBLES
+# ------------------------------------------------------------------
 
-# Set parameters
-delta_h_seq = np.linspace(start=0, stop=14, num=30)
-nsow = 100000
-num_strat = len(delta_h_seq)
+# Set parameters for convergence testing
+delta_h_seq = np.array([0,3,9,14])
+nsow_values = [500000]
+iterations = 10
 yr_elev = 0     # What year the house is elevated
 
-# Read in data files
-obs_discount = pd.read_csv('discount.csv')                          # historical discount rate
-mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()         # mu chain generated from R
+rng = np.random.default_rng()
+verbose = True
+
+# Read in data files (Load outside the loop to save time)
+obs_discount = pd.read_csv('discount.csv')
+mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
 sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
 xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
 
-# --- 1. Generate uncertainties ---
-gev_unc = gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain)  # 3 cols
-dr_unc = discount_rate_unc(obs_discount, nsow)                  # 201 cols
-lt_unc = lifetime_unc(nsow)                                     # 1 col
-ddf_unc = depth_damage_unc(nsow)                                # 50 cols
-val_unc = house_value_unc(struc_value, nsow)                    # 201 cols
-coe_unc = coefficient_unc(nsow)                                 # 2 cols
+# List to store our convergence results
+convergence_results = []
+num_strat = len(delta_h_seq)
 
-# Allocate ensemble array and perform Latin hypercube sampling
-ens = np.empty((nsow, 458))        # 3 + 201 + 1 + 50 + 201 + 2
-sampler = qmc.LatinHypercube(d=6)
-sample = sampler.random(n=nsow)
+print("Starting Convergence Testing...\n")
 
-i_sow = np.floor(sample * nsow).astype(int)
-# Avoid sampling row 0 (depths) for the depth-damage function
-i_sow[:, 3] = np.floor(sample[:, 3] * (nsow - 2)).astype(int) + 1
-
-# Map parameters to ensemble matrix
-ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
-ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
-ens[:, 204] = lt_unc[i_sow[:,2]]             
-ens[:, 205:255] = ddf_unc[i_sow[:,3], :] 
-ens[:, 255:456] = val_unc[i_sow[:,4], :]
-ens[:, 456:458] = coe_unc[i_sow[:,5], :]
-
-# --- 2. Evaluate Strategies ---
-led_ens = np.zeros((num_strat, nsow))   # allocate lifetime expected damages
-cc_ens = np.zeros((num_strat, nsow))    # allocate construction cost
-lr_ens = np.zeros((num_strat, nsow))    # allocate reliability
-
-# Get parameters outside of the loop
-mus_0, sigmas_0, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
-drs = ens[:, 3:204]                 # get discount rates from ensemble (trimmed to house lifetime in led function)
-lifespans = ens[:, 204]             # get house lifetime from ensemble
-dd_depths = ddf_unc[0, :]           # depths are the same regardles of SOW
-dd_damages = ens[:, 205:255]        # get damage values from ensemble
-house_vals = ens[:, 255:456]        # get house values (trimmed to house lifetime in led function)
-beta_1, beta_2 = ens[:, 456], ens[:, 457]             # get coefficients
-
-# Compute time-indexed GEV parameters (mus, sigmas)
-t = np.arange(201)
-# mu(t) = mu_0 + beta_1*t
-mus = mus_0[:, np.newaxis] + (beta_1[:, np.newaxis] * t)
-# sigma(t) = exp(ln(sigma_0) + beta_2*t)
-sigmas = np.exp(np.log(sigmas_0[:, np.newaxis]) + (beta_2[:, np.newaxis] * t))
-
-# Pre-compute construction costs
-for i, dh in enumerate(delta_h_seq):
-    cc_ens[i] = construction_cost(dh, sqft, yr_elev, drs)
-
-# Process SOWs in chunks to strictly control peak memory usage
-chunk_size = 5000
-
-for start_idx in range(0, nsow, chunk_size):
-    if verbose: print(f"Evaluating chunk index {start_idx}")
-    end_idx = min(start_idx + chunk_size, nsow)
+# Outer loop: Iterate through different sample sizes
+for current_nsow in nsow_values:
+    print(f"Testing nsow = {current_nsow}...")
     
-    # Slice parameters for this chunk
-    hv_c = house_vals[start_idx:end_idx]
-    ls_c = lifespans[start_idx:end_idx]
-    dr_c = drs[start_idx:end_idx]
-    mu_c = mus[start_idx:end_idx]
-    sig_c = sigmas[start_idx:end_idx]
-    xi_c = xis[start_idx:end_idx]
-    ddd_c = dd_damages[start_idx:end_idx]
-    
-    # Re-initialized for every new chunk, cached across strategies
-    cached_ead_init = None
-    cached_prob_init = None
-    
-    for i, dh in enumerate(delta_h_seq):
-        # 1. Expected Damages (uses/updates baseline cache)
-        led_res, cached_ead_init = lifetime_expected_damages_chunk(
-            hv_c, init_elev, dh, ls_c, dr_c, mu_c, sig_c, xi_c, 
-            dd_depths, ddd_c, yr_elev, ead_init=cached_ead_init
-        )
-        led_ens[i, start_idx:end_idx] = led_res
+    # Inner loop: Run iterations for the current sample size
+    for it in range(iterations):
+        if verbose: print(f"\tIteration {it+1}/{iterations}")
         
-        # 2. Reliability (uses/updates baseline cache)
-        lr_res, cached_prob_init = lifetime_reliability_chunk(
-            ls_c, mu_c, sig_c, xi_c, init_elev, dh, yr_elev, prob_init=cached_prob_init
+        # --- 1. Generate uncertainties ---
+        gev_unc = gev_param_unc(current_nsow, mu_chain, sigma_chain, xi_chain)  # 3 cols
+        dr_unc = discount_rate_unc(obs_discount, current_nsow)                  # 201 cols
+        lt_unc = lifetime_unc(current_nsow)                                     # 1 col
+        ddf_unc = depth_damage_unc(current_nsow)                                # 50 cols
+        val_unc = house_value_unc(struc_value, current_nsow)                    # 201 cols
+        coe_unc = coefficient_unc(current_nsow)                                 # 2 cols
+
+        # Allocate ensemble array and perform Latin hypercube sampling
+        ens = np.empty((current_nsow, 458))        # 3 + 201 + 1 + 50 + 201 + 2
+        sampler = qmc.LatinHypercube(d=6)
+        sample = sampler.random(n=current_nsow)
+
+        i_sow = np.floor(sample * current_nsow).astype(int)
+        # Avoid sampling row 0 (depths) for the depth-damage function
+        i_sow[:, 3] = np.floor(sample[:, 3] * (current_nsow - 2)).astype(int) + 1
+
+        # Map parameters to ensemble matrix
+        ens[:, 0:3] = gev_unc[i_sow[:,0], :]         
+        ens[:, 3:204] = dr_unc[i_sow[:,1], :]        
+        ens[:, 204] = lt_unc[i_sow[:,2]]             
+        ens[:, 205:255] = ddf_unc[i_sow[:,3], :] 
+        ens[:, 255:456] = val_unc[i_sow[:,4], :]
+        ens[:, 456:458] = coe_unc[i_sow[:,5], :]
+
+        # --- 2. Evaluate Strategies ---
+        led_ens = np.zeros((num_strat, current_nsow))   # allocate lifetime expected damages
+        cc_ens = np.zeros((num_strat, current_nsow))    # allocate construction cost
+        lr_ens = np.zeros((num_strat, current_nsow))    # allocate reliability
+
+        # Get parameters outside of the loop
+        mus_0, sigmas_0, xis = ens[:, 0], ens[:, 1], ens[:, 2]  # get mu, sigma, and xi from ensemble
+        drs = ens[:, 3:204]                 # get discount rates from ensemble (trimmed to house lifetime in led function)
+        lifespans = ens[:, 204]             # get house lifetime from ensemble
+        dd_depths = ddf_unc[0, :]           # depths are the same regardles of SOW
+        dd_damages = ens[:, 205:255]        # get damage values from ensemble
+        house_vals = ens[:, 255:456]        # get house values (trimmed to house lifetime in led function)
+        beta_1, beta_2 = ens[:, 456], ens[:, 457]             # get coefficients
+
+        # Compute time-indexed GEV parameters (mus, sigmas)
+        t = np.arange(201)
+        # mu(t) = mu_0 + beta_1*t
+        mus = mus_0[:, np.newaxis] + (beta_1[:, np.newaxis] * t)
+        # sigma(t) = exp(ln(sigma_0) + beta_2*t)
+        sigmas = np.exp(np.log(sigmas_0[:, np.newaxis]) + (beta_2[:, np.newaxis] * t))
+
+        # Pre-compute construction costs
+        for i, dh in enumerate(delta_h_seq):
+            cc_ens[i] = construction_cost(dh, sqft, yr_elev, drs)
+
+        # Process SOWs in chunks to strictly control peak memory usage
+        chunk_size = 5000
+
+        for start_idx in range(0, current_nsow, chunk_size):
+            # if verbose: print(f"Evaluating chunk index {start_idx}")
+            end_idx = min(start_idx + chunk_size, current_nsow)
+            
+            # Slice parameters for this chunk
+            hv_c = house_vals[start_idx:end_idx]
+            ls_c = lifespans[start_idx:end_idx]
+            dr_c = drs[start_idx:end_idx]
+            mu_c = mus[start_idx:end_idx]
+            sig_c = sigmas[start_idx:end_idx]
+            xi_c = xis[start_idx:end_idx]
+            ddd_c = dd_damages[start_idx:end_idx]
+            
+            # Re-initialized for every new chunk, cached across strategies
+            cached_ead_init = None
+            cached_prob_init = None
+            
+            for i, dh in enumerate(delta_h_seq):
+                # 1. Expected Damages (uses/updates baseline cache)
+                led_res, cached_ead_init = lifetime_expected_damages_chunk(
+                    hv_c, init_elev, dh, ls_c, dr_c, mu_c, sig_c, xi_c, 
+                    dd_depths, ddd_c, yr_elev, ead_init=cached_ead_init
+                )
+                led_ens[i, start_idx:end_idx] = led_res
+                
+                # 2. Reliability (uses/updates baseline cache)
+                lr_res, cached_prob_init = lifetime_reliability_chunk(
+                    ls_c, mu_c, sig_c, xi_c, init_elev, dh, yr_elev, prob_init=cached_prob_init
+                )
+                lr_ens[i, start_idx:end_idx] = lr_res
+
+        # --- 3. Calculate Objectives ---
+        # Total cost
+        tc_ens = led_ens + cc_ens
+
+        # BCR for all strategies
+        baseline_led = led_ens[0, :]    # Lifetime expected damages if no elevation
+        bcr_ens = (baseline_led - led_ens) / cc_ens
+
+        # Robustness (satisficing) for each strategy
+        # This creates a boolean mask for all strategies/SOWs at once
+        robustness_mask = (
+            (bcr_ens > 1) & 
+            (lr_ens > 0.5) & 
+            ((tc_ens / struc_value) < 1)
         )
-        lr_ens[i, start_idx:end_idx] = lr_res
+        # Mean across SOWs (axis=1) gives the score for each strategy
+        robustness_scores = np.mean(robustness_mask, axis=1) * 100
 
-# --- 3. Calculate Objectives ---
-# Total cost
-tc_ens = led_ens + cc_ens
+        # Store results
+        for i, dh in enumerate(delta_h_seq):
+            convergence_results.append({
+                'nsow': current_nsow,
+                'iteration': it+1,
+                'dh': dh,
+                'upfront_cost': np.mean(cc_ens[i, :]),
+                'total_cost': np.mean(tc_ens[i, :]),
+                'bcr': np.mean(bcr_ens[i, :]) if dh > 0 else np.nan,
+                'reliability': np.mean(lr_ens[i, :]),
+                'satisficing': robustness_scores[i]
+            })
 
-# BCR for all strategies
-baseline_led = led_ens[0, :]    # Lifetime expected damages if no elevation
-bcr_ens = (baseline_led - led_ens) / cc_ens
+# Convert to DataFrame
+df_convergence = pd.DataFrame(convergence_results)
+df_convergence.to_csv('data/convergence_evHV_evGEV_5e6.csv', index=False)
+print("\nResults saved to 'convergence_evHV_evGEV_5e6.csv'")
 
-# Robustness (satisficing) for each strategy
-# This creates a boolean mask for all strategies/SOWs at once
-robustness_mask = (
-    (bcr_ens > 1) & 
-    (lr_ens > 0.5) & 
-    ((tc_ens / struc_value) < 1)
-)
-# Mean across SOWs (axis=1) gives the score for each strategy
-robustness_scores = np.mean(robustness_mask, axis=1) * 100
+print("\n" + "="*60)
+print("CONVERGENCE TESTING RESULTS")
+print("="*60)
+print(df_convergence)
 
-# Store results
-results = []
-for i, dh in enumerate(delta_h_seq):
-    results.append({
-        'nsow': nsow,
-        'dh': dh,
-        'upfront_cost': np.mean(cc_ens[i, :]),
-        'total_cost': np.mean(tc_ens[i, :]),
-        'bcr': np.mean(bcr_ens[i, :]) if dh > 0 else np.nan,
-        'reliability': np.mean(lr_ens[i, :]),
-        'satisficing': robustness_scores[i]
-    })
+# ------------------------------------------------------------------
+# PLOT CONVERGENCE TESTING
+# ------------------------------------------------------------------
+def plot_convergence(df, heights_to_plot=[0, 3, 9, 14]):
+    metrics = ['total_cost', 'bcr', 'reliability']
+    titles = ['Total Cost ($)', 'Benefit-Cost Ratio', 'Lifetime Reliability']
+    
+    for height in heights_to_plot:
+        # Filter data for specific height
+        data_subset = df[df['dh'] == height]
+        
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        fig.suptitle(f'Convergence Analysis for Heightening Strategy dh = {height}ft', fontsize=16)
+        
+        for idx, metric in enumerate(metrics):
+            # Using stripplot to show all 10 points (iterations) per nsow
+            sns.stripplot(ax=axes[idx], data=data_subset, x='nsow', y=metric, 
+                          jitter=0.2, alpha=0.6, palette="viridis")
+            
+            # Add a line to show the trend of the mean across iterations
+            sns.pointplot(ax=axes[idx], data=data_subset, x='nsow', y=metric, 
+                          color='black', markers='D', scale=0.5)
+            
+            axes[idx].set_title(titles[idx])
+            axes[idx].grid(True, linestyle='--', alpha=0.7)
+            
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.savefig(f'figures/convergence_evGEV_evHV_5e6_{height}')
 
-df_results = pd.DataFrame(results)
-df_results.to_csv('data/objectives_evGEV.csv', index=False)
-if verbose: print("\nResults saved to 'objectives_evGEV.csv'")
+# Run the plotting function
+plot_convergence(df_convergence)
 
 # For calculating runtime
 end = time.time()
