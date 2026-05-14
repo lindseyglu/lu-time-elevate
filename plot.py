@@ -13,6 +13,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from scipy.stats import genextreme
 
 # # Read in results csv
 # objs = pd.read_csv('objectives.csv')
@@ -54,65 +55,108 @@ import numpy as np
 ## PLOT HEIGHTS AT DIFFERENT TIME INTERVALS
 ## ------------------------------------------------------------------
 
-# 1. Load and merge the data
-# File definitions with descriptive labels
-files = {
-    'data/objectives_evHV_evGEV_0.csv': 'Year 0',
-    'data/objectives_evHV_evGEV_10.csv': 'Year 10',
-    'data/objectives_evHV_evGEV_20.csv': 'Year 20'
-}
-num_scen = 3
+# # 1. Load and merge the data
+# # File definitions with descriptive labels
+# files = {
+#     'data/objectives_evHV_evGEV_0.csv': 'Time-indexed house value and GEV parameters',
+#     'data/objectives_evHV.csv': 'Time-indexed house value',
+#     'data/objectives_evGEV.csv': 'Time-indexed GEV parameters',
+#     'data/objectives.csv': 'No time-indexed uncertainties'
+# }
+# num_scen = 4
 
-dfs = []
-for f, label in files.items():
-    df = pd.read_csv(f)
-    df['Scenario'] = label
-    dfs.append(df)
+# dfs = []
+# for f, label in files.items():
+#     df = pd.read_csv(f)
+#     df['Scenario'] = label
+#     dfs.append(df)
 
-df_all = pd.concat(dfs)
+# df_all = pd.concat(dfs)
 
-# 2. Filter: dh == 0 OR dh >= 3
-df_filtered = df_all[(df_all['dh'] == 0) | (df_all['dh'] >= 3)].copy()
-df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
+# # 2. Filter: dh == 0 OR dh >= 3
+# df_filtered = df_all[(df_all['dh'] == 0) | (df_all['dh'] >= 3)].copy()
+# df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
 
-# 3. Define the visual distinction for the baseline (dh=0)
-df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
+# # 3. Define the visual distinction for the baseline (dh=0)
+# df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
 
-sns.set_theme(style="whitegrid")
-palette = sns.color_palette("husl", num_scen)
+# sns.set_theme(style="whitegrid")
+# palette = sns.color_palette("husl", num_scen)
 
-# GRAPH 1: dh vs total_cost
-plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='dh', y='total_cost', hue='Scenario', 
-                style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
-                s=100, palette=palette)
-plt.title('Total Cost vs Heightening Strategy')
-plt.xlabel('Elevation Height [ft]')
-plt.ylabel('Total Cost [$]')
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.tight_layout()
-plt.savefig('figures/total_cost_vs_dh_yrs.png')
+# # GRAPH 1: dh vs total_cost
+# plt.figure(figsize=(10, 6))
+# sns.scatterplot(data=df_filtered, x='dh', y='total_cost', hue='Scenario', 
+#                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
+#                 s=100, palette=palette)
+# plt.title('Total Cost vs Heightening Strategy')
+# plt.xlabel('Elevation Height [ft]')
+# plt.ylabel('Total Cost [$]')
+# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+# plt.tight_layout()
+# plt.savefig('figures/total_cost_vs_dh_comp.png')
 
-# GRAPH 2: upfront_cost vs reliability
-plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='upfront_cost', y='reliability', hue='Scenario', 
-                style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
-                s=100, palette=palette)
-plt.title('Reliability vs Upfront Construction Cost')
-plt.xlabel('Upfront Cost [$]')
-plt.ylabel('Lifetime Reliability')
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.tight_layout()
-plt.savefig('figures/reliability_vs_upfront_yrs.png')
+# # GRAPH 2: upfront_cost vs reliability
+# plt.figure(figsize=(10, 6))
+# sns.scatterplot(data=df_filtered, x='upfront_cost', y='reliability', hue='Scenario', 
+#                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
+#                 s=100, palette=palette)
+# plt.title('Reliability vs Upfront Construction Cost')
+# plt.xlabel('Upfront Cost [$]')
+# plt.ylabel('Lifetime Reliability')
+# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+# plt.tight_layout()
+# plt.savefig('figures/reliability_vs_upfront_comp.png')
 
-# GRAPH 3: total_cost vs reliability
-plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='total_cost', y='reliability', hue='Scenario', 
-                style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
-                s=100, palette=palette)
-plt.title('Reliability vs Total Cost')
-plt.xlabel('Total Cost [$]')
-plt.ylabel('Lifetime Reliability')
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.tight_layout()
-plt.savefig('figures/reliability_vs_total_cost_yrs.png')
+# # GRAPH 3: total_cost vs reliability
+# plt.figure(figsize=(10, 6))
+# sns.scatterplot(data=df_filtered, x='total_cost', y='reliability', hue='Scenario', 
+#                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
+#                 s=100, palette=palette)
+# plt.title('Reliability vs Total Cost')
+# plt.xlabel('Total Cost [$]')
+# plt.ylabel('Lifetime Reliability')
+# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+# plt.tight_layout()
+# plt.savefig('figures/reliability_vs_total_cost_comp.png')
+
+## ------------------------------------------------------------------
+## PLOT GEV FUNCTION
+## ------------------------------------------------------------------
+
+t = 30
+b1 = 0.02
+b2 = 0.001
+
+# Define parameters
+mus = pd.read_csv('mu_chain.csv')
+loc = np.mean(mus)
+loc_ev = loc + t*b1
+
+sigmas = pd.read_csv('sigma_chain.csv')
+scale = np.mean(sigmas)
+scale_ev = np.exp(np.log(scale) + t*b2)
+
+xis = pd.read_csv('xi_chain.csv')
+shape = -np.mean(xis)
+
+# Generate data points
+x = np.linspace(genextreme.ppf(0.01, shape, loc, scale),
+                genextreme.ppf(0.99, shape, loc, scale), 100)
+x_ev = np.linspace(genextreme.ppf(0.01, shape, loc_ev, scale_ev),
+                   genextreme.ppf(0.99, shape, loc_ev, scale_ev), 100)
+
+# Calculate PDF and CDF
+pdf = genextreme.pdf(x, shape, loc, scale)
+pdf_ev = genextreme.pdf(x, shape, loc_ev, scale_ev)
+
+# Create the plot
+fig, ax1 = plt.subplots()
+
+ax1.plot(x, pdf, 'r-', label='GEV initial')
+ax1.plot(x_ev, pdf_ev, 'b-', label=f'GEV after {t} years')
+ax1.set_ylabel('Density')
+ax1.tick_params(axis='y')
+
+plt.legend()
+plt.title(f'Initial GEV Distribution (shape={shape:.3f}, loc={loc:.3f}, scale={scale:.3f})')
+plt.show()
