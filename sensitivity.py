@@ -325,20 +325,39 @@ for i, X in enumerate(param_values):
 Si = sobol_analyze.analyze(problem, Y)
 
 # Save as csv
-# 1. Gather the 1D indices into a structured DataFrame
-df_sobol = pd.DataFrame({
-    'Parameter': problem['names'],
-    'S1': Si['S1'].flatten(),
-    'S1_conf': Si['S1_conf'].flatten(),
-    'S2': Si['S2'].flatten(),
-    'S2_conf': Si['S2_conf'].flatten(),
-    'ST': Si['ST'].flatten(),
-    'ST_conf': Si['ST_conf'].flatten()
-})
+# Save as csv - Separate Files for Main and Interacting Effects
 
-# 2. Export to a flat CSV file
-df_sobol.to_csv('sobol_indices.csv', index=False)
-print("Main Sobol indices successfully saved to 'sobol_main_indices.csv'")
+# 1. Save Main 1D Effects (S1 & ST)
+df_main = pd.DataFrame({
+    'Parameter': problem['names'],
+    'S1': Si['S1'], 
+    'S1_conf': Si['S1_conf'],
+    'ST': Si['ST'], 
+    'ST_conf': Si['ST_conf']
+})
+df_main.to_csv('sobol_main_effects.csv', index=False)
+
+# 2. Flatten and Save Second-Order Interactions (S2 Matrix pairs)
+if 'S2' in Si and Si['S2'] is not None:
+    s2_rows = []
+    p_names = problem['names']
+    num_vars = len(p_names)
+    
+    # Loop through unique parameter pairs to flatten the 2D matrix into 1D rows
+    for i in range(num_vars):
+        for j in range(i + 1, num_vars):
+            s2_rows.append({
+                'Parameter_1': p_names[i],
+                'Parameter_2': p_names[j],
+                'S2': Si['S2'][i, j],
+                'S2_conf': Si['S2_conf'][i, j]
+            })
+            
+    df_s2 = pd.DataFrame(s2_rows).dropna(subset=['S2'])
+    df_s2.to_csv('sobol_second_order_interactions.csv', index=False)
+    print("Successfully saved 'sobol_main_effects.csv' and 'sobol_second_order_interactions.csv'")
+else:
+    print("Main effects saved. No second-order indices found to export.")
 
 # =============================================================================
 # REPLICATING THE RADIAL NETWORK PLOT USING ACTUAL SALIB RESULTS
