@@ -22,8 +22,7 @@ matplotlib.use('Agg')                   # Use the 'Agg' backend to avoid the Qt/
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-from joblib import Parallel, delayed
-from SALib.sample import saltelli
+from SALib.sample import sobol
 from SALib.analyze import sobol
 
 # For calculating runtime
@@ -77,14 +76,14 @@ problem = {
                [0, 1],
                [0, 1],
                [0, 1],
-               [-0.3, 0.3],
+               [-30, 30],
                [-0.025, 0.095],
                [-0.01, 0.1],
                [-0.003, 0.005]]
 }
 
 # Generates N*(2D+2) samples where N=1024
-param_u = saltelli.sample(problem, 1024)
+param_u = sobol.sample(problem, 1024)
 
 # Transform parameters
 def transform_parameters(matrix_u, mu_kde, sigma_kde, xi_kde):
@@ -103,9 +102,9 @@ def transform_parameters(matrix_u, mu_kde, sigma_kde, xi_kde):
 
     # 2. Transform discrete uniform
     # Scale the [0, 1] float to span from 0.5 to 10000.5
-    continuous_dr = 0.5 + (matrix_u[:, 7] * 10000.0)
+    continuous_dr = 0.5 + (matrix_u[:, 3] * 10000.0)
     # Round to the nearest integer and cast to int to get an exact discrete span [1, 10000]
-    physical_matrix[:, 7] = np.round(continuous_dr).astype(int)
+    physical_matrix[:, 3] = np.round(continuous_dr).astype(int)
 
     # 3. Transform Weibull using its Percent Point Function (PPF / Inverse CDF)
     physical_matrix[:, 4] = weibull_min.ppf(matrix_u[:, 4], c=2.8, scale=73.5)
@@ -184,14 +183,14 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     ead_init = np.sum(prob_diffs_init * damage_vals, axis=0)          # shape: (life_span)
 
     # Combine elevated and non-elevated EAD
-    ead = np.hstack((ead_init[0:yr_elev], ead_elev[yr_elev:201]))
+    years = np.arange(disc_rate.shape[0])
+    ead = np.where(years < yr_elev, ead_init, ead_elev)
 
     # Apply the year-by-year discount rate
     disc_ead = ead * disc_rate     # shape: (life_span)*(life_span)=(life_span)
 
     # Create a mask: True if year < house_lifetime
-    years_i = np.arange(disc_rate.shape[0])
-    lifespan_mask = years_i < life_span
+    lifespan_mask = years < life_span
     
     # Calculate expected damage
     # Sum across the life_span (axis 1) to get one value per SOW
@@ -294,7 +293,7 @@ def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
     raise ValueError('Options are "rw", "mrv", "drift", "deep", or "cert-4%".')
 
 obs_disc = pd.read_csv('discount.csv')
-dr_trajectories = discount_rate_unc(obs_disc, 10000)
+dr_trajectories = discount_rate_unc(obs_disc, 10000, life_span=200)
 
 # Allocate matrix to hold output values
 Y = np.zeros([param_values.shape[0]])
@@ -305,7 +304,7 @@ for i, X in enumerate(param_values):
     dr_i = int(dr_float)
 
     # Need to pull discount rate trajectory from discount rate index
-    disc_rate = dr_trajectories[dr_i]
+    disc_rate = dr_trajectories[dr_i-1]
 
     # Adjust mu and sigma by b1 and b2 respectively
     t = np.arange(201)
@@ -316,9 +315,71 @@ for i, X in enumerate(param_values):
     house_value = struc_value * (1 + hv_rate*t)
 
     # Calculate damage factors, adjusted for the sampled error
-    damage_adj = damage_fac + damage_fac*dd
+    damage_adj = damage_fac + damage_fac*(dd/100)
     damage_adj = np.clip(damage_adj, 0, 100)    # Ensure that damage is still between 0 and 100
 
     Y[i] = lifetime_expected_damages(house_value, init_elev, 0, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, 0)
 
 # Perform analysis
+Si = sobol.analyze(problem, Y)
+
+# =============================================================================
+# SPIDER PLOT (RADAR CHART) FOR SOBOL INDICES
+# =============================================================================
+
+# 1. Extract parameter names and sensitivity arrays
+labels = problem['names']
+num_vars = len(labels)
+
+# Optional: Map your code variables to beautiful LaTeX labels for the plot
+pretty_labels = [
+    r'$\mu$', r'$\sigma$', r'$\xi$', 
+    r'$dr_{idx}$', r'$Lifetime$', r'$DD_{err}$', 
+    r'$HV_{rate}$', r'$b_1$', r'$b_2$'
+]
+
+s1_values = Si['S1']
+st_values = Si['ST']
+
+# 2. Compute angles for each axis on the radar chart
+angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+
+# 3. "Complete the loop": Polar plots require appending the first element 
+# to the end of the arrays to securely close the geometric shape
+angles += angles[:1]
+s1_plot = np.append(s1_values, s1_values[0])
+st_plot = np.append(st_values, st_values[0])
+
+# 4. Initialize the polar subplot
+fig, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(projection='polar'))
+
+# Rotate the plot so the first parameter starts at the top (12 o'clock position)
+ax.set_theta_offset(np.pi / 2)
+ax.set_theta_direction(-1)
+
+# Draw one axis per variable and add labels
+ax.set_xticks(angles[:-1])
+ax.set_xticklabels(pretty_labels, fontsize=12, weight='bold')
+
+# Adjust y-axis tick markers (amplify or contract depending on index scales)
+max_val = max(1.0, np.max(st_plot) * 1.05)
+ax.set_ylim(0, max_val)
+ax.set_rlabel_position(180) # Move radial labels out of the way of the data lines
+ax.tick_params(colors='grey', labelsize=9)
+
+# 5. Plot First-Order Indices (S1)
+ax.plot(angles, s1_plot, color='#1f77b4', linewidth=2, linestyle='solid', label=r'First-Order ($S_1$)')
+ax.fill(angles, s1_plot, color='#1f77b4', alpha=0.25)
+
+# 6. Plot Total-Effect Indices (ST)
+ax.plot(angles, st_plot, color='#ff7f0e', linewidth=2, linestyle='dashed', label=r'Total-Effect ($S_T$)')
+ax.fill(angles, st_plot, color='#ff7f0e', alpha=0.10)
+
+# 7. Add Title and Legend
+ax.set_title("Global Sensitivity Analysis (Most Likely Scenario)", fontsize=14, weight='bold', pad=30)
+ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=11, frameon=True)
+
+# 8. Save output figure safely without overlapping elements
+plt.tight_layout()
+plt.savefig('sobol_spider_plot.png', dpi=300)
+print("Spider plot successfully saved as 'sobol_spider_plot.png'")
