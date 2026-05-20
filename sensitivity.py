@@ -22,8 +22,9 @@ matplotlib.use('Agg')                   # Use the 'Agg' backend to avoid the Qt/
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-from SALib.sample import sobol
-from SALib.analyze import sobol
+from SALib.sample import sobol as sobol_sample
+from SALib.analyze import sobol as sobol_analyze
+import networkx as nx
 
 # For calculating runtime
 start = time.time()
@@ -70,7 +71,7 @@ xi_kde = gaussian_kde(xi_chain, bw_method='silverman')
 # and then transform into the desired distribution
 problem = {
     'num_vars': 9,
-    'names': ['mu_u', 'sigma_u', 'xi_u', 'dr_u', 'lt', 'dd_err', 'hv_rate', 'b1', 'b2'],
+    'names': ['mu_u', 'sigma_u', 'xi_u', 'dr_u', 'lt_u', 'dd_err', 'hv_rate', 'b1', 'b2'],
     'bounds': [[0, 1],
                [0, 1],
                [0, 1],
@@ -83,7 +84,7 @@ problem = {
 }
 
 # Generates N*(2D+2) samples where N=1024
-param_u = sobol.sample(problem, 1024)
+param_u = sobol_sample.sample(problem, 1024)
 
 # Transform parameters
 def transform_parameters(matrix_u, mu_kde, sigma_kde, xi_kde):
@@ -321,65 +322,147 @@ for i, X in enumerate(param_values):
     Y[i] = lifetime_expected_damages(house_value, init_elev, 0, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, 0)
 
 # Perform analysis
-Si = sobol.analyze(problem, Y)
+Si = sobol_analyze.analyze(problem, Y)
+
+# Save as csv
+# 1. Gather the 1D indices into a structured DataFrame
+df_sobol = pd.DataFrame({
+    'Parameter': problem['names'],
+    'S1': Si['S1'].flatten(),
+    'S1_conf': Si['S1_conf'].flatten(),
+    'S2': Si['S2'].flatten(),
+    'S2_conf': Si['S2_conf'].flatten(),
+    'ST': Si['ST'].flatten(),
+    'ST_conf': Si['ST_conf'].flatten()
+})
+
+# 2. Export to a flat CSV file
+df_sobol.to_csv('sobol_indices.csv', index=False)
+print("Main Sobol indices successfully saved to 'sobol_main_indices.csv'")
 
 # =============================================================================
-# SPIDER PLOT (RADAR CHART) FOR SOBOL INDICES
+# REPLICATING THE RADIAL NETWORK PLOT USING ACTUAL SALIB RESULTS
 # =============================================================================
 
-# 1. Extract parameter names and sensitivity arrays
-labels = problem['names']
-num_vars = len(labels)
+# # 1. Map your problem names to clean, beautiful labels for display
+# label_mapping = {
+#     'mu_u': 'Location parameter',
+#     'sigma_u': 'Scale parameter',
+#     'xi_u': 'Shape parameter',
+#     'dr_u': 'Discount rate',
+#     'lt_u': 'Lifetime',
+#     'dd_err': 'Depth-damage',
+#     'hv_rate': 'HV rate',
+#     'b1': 'b1 parameter',
+#     'b2': 'b2 parameter'
+# }
 
-# Optional: Map your code variables to beautiful LaTeX labels for the plot
-pretty_labels = [
-    r'$\mu$', r'$\sigma$', r'$\xi$', 
-    r'$dr_{idx}$', r'$Lifetime$', r'$DD_{err}$', 
-    r'$HV_{rate}$', r'$b_1$', r'$b_2$'
-]
+# # Convert names to list matching your problem dictionary order
+# raw_names = problem['names']
+# display_labels = [label_mapping[name] for name in raw_names]
 
-s1_values = Si['S1']
-st_values = Si['ST']
+# # 2. Convert Si arrays into structured dictionaries mapped by display names
+# s1_dict = dict(zip(display_labels, Si['S1']))
+# st_dict = dict(zip(display_labels, Si['ST']))
 
-# 2. Compute angles for each axis on the radar chart
-angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+# # 3. Safely extract 2nd-order interaction indices (S2 matrix)
+# s2_interactions = {}
+# num_vars = len(raw_names)
 
-# 3. "Complete the loop": Polar plots require appending the first element 
-# to the end of the arrays to securely close the geometric shape
-angles += angles[:1]
-s1_plot = np.append(s1_values, s1_values[0])
-st_plot = np.append(st_values, st_values[0])
+# # Check if S2 matrix exists in the output (depends on SALib calc_second_order settings)
+# if 'S2' in Si and Si['S2'] is not None:
+#     for i in range(num_vars):
+#         for j in range(i + 1, num_vars):
+#             s2_val = Si['S2'][i, j]
+            
+#             # CRITICAL FILTER: Only plot connections with a noticeable impact (>1%)
+#             # This keeps the network from turning into a messy spiderweb
+#             if s2_val > 0.01:
+#                 p1_display = label_mapping[raw_names[i]]
+#                 p2_display = label_mapping[raw_names[j]]
+#                 s2_interactions[(p1_display, p2_display)] = s2_val
 
-# 4. Initialize the polar subplot
-fig, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(projection='polar'))
+# # 4. Initialize NetworkX Graph structure
+# G = nx.Graph()
+# for label in display_labels:
+#     G.add_node(label)
 
-# Rotate the plot so the first parameter starts at the top (12 o'clock position)
-ax.set_theta_offset(np.pi / 2)
-ax.set_theta_direction(-1)
+# # 5. Fix layout coordinates in a perfect circular ring
+# pos = nx.circular_layout(G)
 
-# Draw one axis per variable and add labels
-ax.set_xticks(angles[:-1])
-ax.set_xticklabels(pretty_labels, fontsize=12, weight='bold')
+# # Rotate the network layout by 90 degrees so 'Location parameter' starts at the top right
+# theta = np.deg2rad(45)
+# rot_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+# for node in pos:
+#     pos[node] = np.dot(pos[node], rot_matrix)
 
-# Adjust y-axis tick markers (amplify or contract depending on index scales)
-max_val = max(1.0, np.max(st_plot) * 1.05)
-ax.set_ylim(0, max_val)
-ax.set_rlabel_position(180) # Move radial labels out of the way of the data lines
-ax.tick_params(colors='grey', labelsize=9)
+# # 6. Initialize Plot Canvas
+# fig, ax = plt.subplots(figsize=(9, 9))
+# ax.set_aspect('equal')
+# plt.axis('off')
 
-# 5. Plot First-Order Indices (S1)
-ax.plot(angles, s1_plot, color='#1f77b4', linewidth=2, linestyle='solid', label=r'First-Order ($S_1$)')
-ax.fill(angles, s1_plot, color='#1f77b4', alpha=0.25)
+# # Add the soft gray grounding circle background seen in the reference PDF
+# bg_circle = plt.Circle((0, 0), 1.05, color='#F0F0F0', zorder=0)
+# ax.add_artist(bg_circle)
 
-# 6. Plot Total-Effect Indices (ST)
-ax.plot(angles, st_plot, color='#ff7f0e', linewidth=2, linestyle='dashed', label=r'Total-Effect ($S_T$)')
-ax.fill(angles, st_plot, color='#ff7f0e', alpha=0.10)
+# # 7. Draw Second-Order Interaction Edges (Blue Lines)
+# if s2_interactions:
+#     # Scale lines linearly: maximum interaction value maps to a thickness of 8.0
+#     max_s2 = max(s2_interactions.values()) if len(s2_interactions) > 0 else 1.0
+#     for (u, v), s2_val in s2_interactions.items():
+#         edge_width = np.interp(s2_val, [0.01, max_s2], [1.5, 8.0])
+        
+#         # FIXED: Removed 'zorder=1' to prevent the unexpected keyword argument error
+#         nx.draw_networkx_edges(
+#             G, pos, edgelist=[(u, v)], 
+#             width=edge_width, edge_color='#1A237E', # Deep navy blue
+#             ax=ax
+#         )
+# # 8. Draw Nodes Layer by Layer (Total-order ring + First-order center)
+# # Dynamically determine bounds to avoid rendering microscopic or giant nodes
+# all_s1 = list(s1_dict.values())
+# all_st = list(st_dict.values())
+# min_s1, max_s1 = min(all_s1), max(all_s1)
+# min_st, max_st = min(all_st), max(all_st)
 
-# 7. Add Title and Legend
-ax.set_title("Global Sensitivity Analysis (Most Likely Scenario)", fontsize=14, weight='bold', pad=30)
-ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=11, frameon=True)
+# for node in display_labels:
+#     x, y = pos[node]
+    
+#     # Map index percentage bounds cleanly to display pixel sizing markers
+#     # Safe interp protects against divide-by-zero if variance is completely uniform
+#     s1_size = np.interp(s1_dict[node], [max(0, min_s1), max(0.01, max_s1)], [150, 2500])
+#     st_size = np.interp(st_dict[node], [max(0, min_st), max(0.01, max_st)], [220, 3200])
+    
+#     # Draw Outer Black Circle (Total Order Index, ST)
+#     ax.scatter(x, y, s=st_size, color='black', zorder=2)
+#     # Draw White Buffer Mask Ring
+#     ax.scatter(x, y, s=st_size * 0.85, color='white', zorder=3)
+#     # Draw Inner Salmon Circle (First Order Index, S1)
+#     ax.scatter(x, y, s=s1_size, color='#FF6B6B', zorder=4)
 
-# 8. Save output figure safely without overlapping elements
-plt.tight_layout()
-plt.savefig('sobol_spider_plot.png', dpi=300)
-print("Spider plot successfully saved as 'sobol_spider_plot.png'")
+# # 9. Add Context Labels Text Around the Perimeter Outer Boundary
+# for node, (x, y) in pos.items():
+#     # Push text outwards slightly beyond the gray background circle boundary
+#     radial_offset = 1.25
+#     text_x = x * radial_offset
+#     text_y = y * radial_offset
+    
+#     # Intelligently align label alignment based on position quadrant
+#     ha = 'left' if x >= 0 else 'right'
+#     va = 'center'
+    
+#     if abs(x) < 0.15:
+#         ha = 'center'
+#         va = 'bottom' if y > 0 else 'top'
+
+#     ax.text(
+#         text_x, text_y, node, 
+#         fontsize=10, color='#212121', weight='bold',
+#         horizontalalignment=ha, verticalalignment=va
+#     )
+
+# # 10. Generate Output Image
+# plt.tight_layout()
+# output_filename = 'SA_RadialPlot.png'
+# plt.savefig(output_filename, dpi=300, bbox_inches='tight')
+# print(f"Radial network sensitivity visualization successfully saved as '{output_filename}'")
