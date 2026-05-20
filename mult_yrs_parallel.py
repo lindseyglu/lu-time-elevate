@@ -42,11 +42,6 @@ disc_rate = np.exp(-1 * (0.04 * dr_i))
 bfe = 34.7              # generated in the R code
 init_elev = bfe + del_elev  # Initial house elev
 
-# Set deterministic GEV parameters
-mu = 19.8718901487264
-sigma = 3.16814792683425
-xi = 0.00515921024408503
-
 # Set depth-damage function
 depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
