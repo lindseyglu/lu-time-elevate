@@ -16,7 +16,7 @@ import seaborn as sns
 import numpy as np
 
 # 1. Load the unified data file
-file_path = 'data/objectives_multyrs_5e6.csv'
+file_path = '/Volumes/keller-lab/Lindsey_Lu/single_house/data/objectives_5e6_3-20.csv'
 df_all = pd.read_csv(file_path)
 
 # Chronologically sort by year so that legends and palettes align perfectly
@@ -45,7 +45,7 @@ plt.xlabel('Elevation Height [ft]')
 plt.ylabel('Total Cost [$]')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('figures/total_cost_vs_dh_multyrs_5e6.png')
+plt.savefig('figures/total_cost_vs_dh_multyrs_5e6_20.png')
 
 # GRAPH 2: upfront_cost vs reliability
 plt.figure(figsize=(10, 6))
@@ -57,7 +57,7 @@ plt.xlabel('Upfront Cost [$]')
 plt.ylabel('Lifetime Reliability')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('figures/reliability_vs_upfront_multyrs_5e6.png')
+plt.savefig('figures/reliability_vs_upfront_multyrs_5e6_20.png')
 
 # GRAPH 3: total_cost vs reliability
 plt.figure(figsize=(10, 6))
@@ -69,7 +69,7 @@ plt.xlabel('Total Cost [$]')
 plt.ylabel('Lifetime Reliability')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('figures/reliability_vs_total_cost_multyrs_5e6.png')
+plt.savefig('figures/reliability_vs_total_cost_multyrs_5e6_20.png')
 
 # GRAPH 4: dh vs upfront_cost
 plt.figure(figsize=(10, 6))
@@ -81,7 +81,7 @@ plt.xlabel('Elevation Height [ft]')
 plt.ylabel('Upfront Cost [$]')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('figures/upfront_cost_vs_dh_multyrs_5e6.png')
+plt.savefig('figures/upfront_cost_vs_dh_multyrs_5e6_20.png')
 
 # GRAPH 5: dh vs damages
 plt.figure(figsize=(10, 6))
@@ -93,4 +93,16 @@ plt.xlabel('Elevation Height [ft]')
 plt.ylabel('Lifetime Damages [$]')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
-plt.savefig('figures/damages_vs_dh_multyrs_5e6.png')
+plt.savefig('figures/damages_vs_dh_multyrs_5e6_20.png')
+
+# GRAPH 6: upfront vs damages
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=df_filtered, x='upfront_cost', y='damages', hue='Scenario', 
+                style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
+                s=100, palette=palette)
+plt.title('Upfront Cost vs Lifetime Damages')
+plt.xlabel('Upfront Cost [$]')
+plt.ylabel('Lifetime Damages [$]')
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.savefig('figures/upcost_vs_damages_multyrs_5e6_20.png')

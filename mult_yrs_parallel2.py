@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Filename: mult_yrs_parallel.py
+Filename: mult_yrs_parallel2.py
 Author: Lindsey Lu
 Created: 2026-02-05
 Version: 2.0
@@ -291,7 +291,7 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0.01
+    b1 = 0.02
     b1_std = 0.3*b1
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
@@ -300,7 +300,7 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.001
+    b2 = 0.003
     b2_std = 0.3*b2
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
@@ -469,8 +469,8 @@ if __name__ == '__main__':
             })
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv('data/objectives_coeff1.csv', index=False)
-    if verbose: print("\nResults saved to 'objectives_coeff1.csv'")
+    df_results.to_csv('data/objectives_coeff2.csv', index=False)
+    if verbose: print("\nResults saved to 'objectives_coeff2.csv'")
 
     end = time.time()
     print(f"Runtime: {end - start} seconds")

@@ -4,8 +4,7 @@ Filename: plot.py
 Author: Lindsey Lu
 Created: 2026-04-08
 Version: 1.0
-Description: Plot Pareto fronts and single objective optimization 
-for different methods of evaluating home elevation height
+Description: Plot the GEV function after 30 years.
 """
 
 # import libraries
@@ -52,16 +51,17 @@ from scipy.stats import genextreme
 # plt.savefig(f'height_totcost')
 
 ## ------------------------------------------------------------------
-## PLOT HEIGHTS AT DIFFERENT TIME INTERVALS
+## PLOT DIFFERENT SCENARIOS
 ## ------------------------------------------------------------------
 
 # # 1. Load and merge the data
 # # File definitions with descriptive labels
+# # NOTE: need to change/filter for the just year 0 in df1
 # files = {
-#     'data/objectives_evHV_evGEV_0.csv': 'Time-indexed house value and GEV parameters',
-#     'data/objectives_evHV.csv': 'Time-indexed house value',
+#     'data/objectives.csv': 'No time-indexed uncertainties',
 #     'data/objectives_evGEV.csv': 'Time-indexed GEV parameters',
-#     'data/objectives.csv': 'No time-indexed uncertainties'
+#     'data/objectives_evHV.csv': 'Time-indexed house value',
+#     'data/objectives_multyrs_5e6.csv': 'Time-indexed house value and GEV parameters'
 # }
 # num_scen = 4
 
@@ -69,7 +69,13 @@ from scipy.stats import genextreme
 # for f, label in files.items():
 #     df = pd.read_csv(f)
 #     df['Scenario'] = label
-#     dfs.append(df)
+#     if label == 'Time-indexed house value and GEV parameters':
+#         filtered_df = df[df['yr_elev'] == 0]    # ensure only elevation @now is considered
+#     elif label == 'Time-indexed GEV parameters':
+#         filtered_df = df[df['yr_elev'] == 0]    # ensure only elevation @now is considered
+#     else:
+#         filtered_df = df
+#     dfs.append(filtered_df)
 
 # df_all = pd.concat(dfs)
 
@@ -123,18 +129,21 @@ from scipy.stats import genextreme
 ## PLOT GEV FUNCTION
 ## ------------------------------------------------------------------
 
-t = 30
-b1 = 0.02
-b2 = 0.001
+t1 = 30
+t2 = 100
+b1 = 0.03
+b2 = 0.002
 
 # Define parameters
 mus = pd.read_csv('mu_chain.csv')
 loc = np.mean(mus)
-loc_ev = loc + t*b1
+loc_30 = loc + t1*b1
+loc_100 = loc + t2*b1
 
 sigmas = pd.read_csv('sigma_chain.csv')
 scale = np.mean(sigmas)
-scale_ev = np.exp(np.log(scale) + t*b2)
+scale_30 = np.exp(np.log(scale) + t1*b2)
+scale_100 = np.exp(np.log(scale) + t2*b2)
 
 xis = pd.read_csv('xi_chain.csv')
 shape = -np.mean(xis)
@@ -142,21 +151,26 @@ shape = -np.mean(xis)
 # Generate data points
 x = np.linspace(genextreme.ppf(0.01, shape, loc, scale),
                 genextreme.ppf(0.99, shape, loc, scale), 100)
-x_ev = np.linspace(genextreme.ppf(0.01, shape, loc_ev, scale_ev),
-                   genextreme.ppf(0.99, shape, loc_ev, scale_ev), 100)
+x_30 = np.linspace(genextreme.ppf(0.01, shape, loc_30, scale_30),
+                   genextreme.ppf(0.99, shape, loc_30, scale_30), 100)
+x_100 = np.linspace(genextreme.ppf(0.01, shape, loc_100, scale_100),
+                    genextreme.ppf(0.99, shape, loc_100, scale_100), 100)
 
 # Calculate PDF and CDF
 pdf = genextreme.pdf(x, shape, loc, scale)
-pdf_ev = genextreme.pdf(x, shape, loc_ev, scale_ev)
+pdf_30 = genextreme.pdf(x, shape, loc_30, scale_30)
+pdf_100 = genextreme.pdf(x, shape, loc_100, scale_100)
 
 # Create the plot
 fig, ax1 = plt.subplots()
 
 ax1.plot(x, pdf, 'r-', label='GEV initial')
-ax1.plot(x_ev, pdf_ev, 'b-', label=f'GEV after {t} years')
+ax1.plot(x_30, pdf_30, 'b-', label=f'GEV after {t1} years')
+ax1.plot(x_100, pdf_100, 'g-', label=f'GEV after {t2} years')
 ax1.set_ylabel('Density')
+ax1.set_xlabel('Annual Maximum Water Level (ft)')
 ax1.tick_params(axis='y')
 
 plt.legend()
-plt.title(f'Initial GEV Distribution (shape={shape:.3f}, loc={loc:.3f}, scale={scale:.3f})')
+plt.title(f'GEV Distribution Over Time')
 plt.show()
