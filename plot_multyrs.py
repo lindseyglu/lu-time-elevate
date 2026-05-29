@@ -28,7 +28,7 @@ unique_scenarios = df_all['Scenario'].unique()
 num_scen = len(unique_scenarios)
 
 # 2. Filter: dh == 0 OR dh >= 3
-df_filtered = df_all[(df_all['dh'] == 0) | (df_all['dh'] >= 3)].copy()
+df_filtered = df_all[(df_all['dh'] >= 3)].copy()
 df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
 
 # Set up plotting style and palette dynamically based on the numbers of years evaluated
@@ -37,7 +37,7 @@ palette = sns.color_palette("husl", num_scen)
 
 # GRAPH 1: dh vs total_cost
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='dh', y='total_cost', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='dh', y='total_cost', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Total Cost vs Heightening Strategy')
@@ -49,7 +49,7 @@ plt.savefig('figures/total_cost_vs_dh_multyrs_5e6_20.png')
 
 # GRAPH 2: upfront_cost vs reliability
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='upfront_cost', y='reliability', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='upfront_cost', y='reliability', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Reliability vs Upfront Construction Cost')
@@ -61,7 +61,7 @@ plt.savefig('figures/reliability_vs_upfront_multyrs_5e6_20.png')
 
 # GRAPH 3: total_cost vs reliability
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='total_cost', y='reliability', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='total_cost', y='reliability', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Reliability vs Total Cost')
@@ -73,7 +73,7 @@ plt.savefig('figures/reliability_vs_total_cost_multyrs_5e6_20.png')
 
 # GRAPH 4: dh vs upfront_cost
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='dh', y='upfront_cost', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='dh', y='upfront_cost', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Upfront Cost vs Heightening Strategy')
@@ -85,7 +85,7 @@ plt.savefig('figures/upfront_cost_vs_dh_multyrs_5e6_20.png')
 
 # GRAPH 5: dh vs damages
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='dh', y='damages', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='dh', y='damages', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Lifetime Damages vs Heightening Strategy')
@@ -97,7 +97,7 @@ plt.savefig('figures/damages_vs_dh_multyrs_5e6_20.png')
 
 # GRAPH 6: upfront vs damages
 plt.figure(figsize=(10, 6))
-sns.scatterplot(data=df_filtered, x='upfront_cost', y='damages', hue='Scenario', 
+sns.lineplot(data=df_filtered, x='upfront_cost', y='damages', hue='Scenario', 
                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
                 s=100, palette=palette)
 plt.title('Upfront Cost vs Lifetime Damages')

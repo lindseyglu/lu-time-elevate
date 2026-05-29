@@ -74,10 +74,10 @@ def compute_chunk_ead(struc_value, elev, mu, sigma, xi, DD_Depth, DD_Damage):
 
 def construction_cost(delta_h, sqft, yr_elev, disc_rate):
     base_cost = 10000 + 300 + 470 + 4300 + 2175 + 3500
-    Hs = np.array([3, 5, 8.5, 12, 14])
-    Rates = np.array([80.36, 82.5, 86.25, 103.75, 113.75])
+    Hs = np.array([3, 5, 8.5, 12, 14, 20])
+    Rates = np.array([80.36, 82.5, 86.25, 103.75, 113.75, 113.75])
 
-    if 3 <= delta_h <= 14:
+    if 3 <= delta_h <= 20:
         rate = np.interp(delta_h, Hs, Rates)
     else:     
         rate = 0
@@ -291,7 +291,7 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0.03
+    b1 = 0.005
     b1_std = 0.3*b1
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
@@ -300,7 +300,7 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.005
+    b2 = 0.0005
     b2_std = 0.3*b2
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
@@ -469,8 +469,8 @@ if __name__ == '__main__':
             })
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv('data/objectives_coeff3.csv', index=False)
-    if verbose: print("\nResults saved to 'objectives_coeff3.csv'")
+    df_results.to_csv('data/objectives_coeff0.csv', index=False)
+    if verbose: print("\nResults saved to 'objectives_coeff0.csv'")
 
     end = time.time()
     print(f"Runtime: {end - start} seconds")
