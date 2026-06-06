@@ -270,8 +270,8 @@ def gev_param_unc(nsow, mu_chain, sigma_chain, xi_chain):
 # Dependent on the intensity of flooding (to be implemented later)
 def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
     # Dummy values for a deterministic, linear change of house value
-    appr_rate = 0.035   # Appreciation based on attractiveness
-    stdev = 0.02
+    appr_rate = 0   # Appreciation based on attractiveness
+    stdev = 0
     # risk_rate = -0.04   # Depreciation rate based on flood risk
     # elev_rate = 0.01    # Impact of each foot of elevation
 
@@ -291,7 +291,7 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0.01
+    b1 = 0.03
     b1_std = 0.3*b1
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
@@ -300,7 +300,7 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.001
+    b2 = 0.005
     b2_std = 0.3*b2
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
@@ -367,7 +367,8 @@ def process_single_chunk(start_idx, end_idx, delta_h_seq, yr_elev_seq, init_elev
 ## ------------------------------------------------------------------
 
 if __name__ == '__main__':
-    delta_h_seq = np.linspace(start=0, stop=20, num=30)
+    delta_h_seq = np.linspace(start=3, stop=14, num=30, endpoint=True)
+    delta_h_seq = np.insert(delta_h_seq, 0, 0)
     yr_elev_seq = np.array([0, 10, 20])  
 
     nsow = 500000
@@ -469,8 +470,8 @@ if __name__ == '__main__':
             })
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv('data/objectives_coeff1.csv', index=False)
-    if verbose: print("\nResults saved to 'objectives_coeff1.csv'")
+    df_results.to_csv('data/objectives_evGEV_coeff3.csv', index=False)
+    if verbose: print("\nResults saved to 'objectives_evGEV_coeff3.csv'")
 
     end = time.time()
     print(f"Runtime: {end - start} seconds")

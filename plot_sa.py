@@ -24,13 +24,13 @@ problem = {
                [0, 1],
                [-30, 30],
                [-0.025, 0.095],
-               [-0.01, 0.1],
-               [-0.003, 0.005]]
+               [0, 0.03],
+               [0, 0.005]]
 }
 
 # Read in csv values
-Si = pd.read_csv('sobol_main_effects.csv')
-Si2 = pd.read_csv('sobol_second_order_interactions.csv')
+Si = pd.read_csv('sobol_main_effects_tc0.csv')
+Si2 = pd.read_csv('sobol_second_order_interactions_tc0.csv')
 
 # =============================================================================
 # REPLICATING THE RADIAL NETWORK PLOT FROM R SCRIPT GUIDELINES
@@ -104,9 +104,10 @@ if 'S2' in Si2.columns:
                 if (p1, p2) in s2_lookup:
                     val, conf = s2_lookup[(p1, p2)]
                     
-                    if not np.isnan(val):
+                    # --- ADDED THE 3% VALUE FILTER HERE ---
+                    # Check that it's statistically significant AND accounts for > 1% of variance
+                    if not np.isnan(val) and val > 0.01:
                         s2_matrix[i, j] = val
-                        # Significant if zero is excluded from the 95% confidence interval
                         s2_sig[i, j] = 1 if (val - conf) > 0 else 0
 
 # 5. Set up Radial Geometry Coordinates (Matches R script settings exactly)
@@ -156,17 +157,17 @@ min_s1 = np.min(sig_s1) if len(sig_s1) > 0 else 0.0
 for i, key in enumerate(ordered_keys):
     x, y = node_coords[i]
     
-    # Total-Order Outer Boundary Anchor (Radius scaled 0.02 to 0.1)
+    # Total-Order Outer Boundary Anchor (Radius scaled 0.01 to 0.08)
     if st_sig[i] == 1:
-        r_st = scale_value(st_vals[i], min_st, max_st, 0.02, 0.1)
+        r_st = scale_value(st_vals[i], min_st, max_st, 0.01, 0.08)
         ax.add_patch(plt.Circle((x, y), r_st, color='black', zorder=2))
     else:
         # Non-significant fallback dot to keep layout structured
         ax.add_patch(plt.Circle((x, y), 0.015, color='gray', zorder=2))
         
-    # First-Order Center Core (Radius scaled 0.005 to 0.08)
+    # First-Order Center Core (Radius scaled 0.005 to 0.06)
     if s1_sig[i] == 1:
-        r_s1 = scale_value(s1_vals[i], min_s1, max_s1, 0.005, 0.08)
+        r_s1 = scale_value(s1_vals[i], min_s1, max_s1, 0.005, 0.06)
         ax.add_patch(plt.Circle((x, y), r_s1, color='#FF6666', zorder=3))
 
 # 9. Add Perimeter Parameter Text Labels
@@ -192,21 +193,34 @@ ax.text(0, 0.90, 'Earth sciences', fontsize=13, color='darkgreen', weight='bold'
 ax.text(-1.25, 0.15, 'Engineering', fontsize=13, color='darkred', weight='bold', ha='left')
 ax.text(0.95, -0.35, 'Social sciences', fontsize=13, color='purple', weight='bold', ha='center')
 
-# 11. Build Authentic Custom Legended Scale Box at Bottom (Matches R Output)
+# 11. Custom Legend with Scaled Circles
 y_box = -0.85
+
+# --- Dynamic First-Order Radius Calculation ---
+# Scale the max and min values using the exact same bounds as the nodes (0.005 to 0.08)
+r_s1_max = scale_value(max_s1, min_s1, max_s1, 0.005, 0.06)
+r_s1_min = scale_value(min_s1, min_s1, max_s1, 0.005, 0.06)
+
 # First Order Legend Elements
-ax.add_patch(plt.Circle((-0.7, y_box), 0.06, color='#FF6666', zorder=2))
-ax.add_patch(plt.Circle((-0.5, y_box), 0.015, color='#FF6666', zorder=2))
+ax.add_patch(plt.Circle((-0.7, y_box), r_s1_max, color='#FF6666', zorder=2))
+ax.add_patch(plt.Circle((-0.5, y_box), r_s1_min, color='#FF6666', zorder=2))
 ax.text((-0.7), y_box + 0.09, f"{round(100*max_s1)}%", ha='center', fontsize=9, weight='bold')
 ax.text((-0.5), y_box + 0.09, f"{round(100*min_s1)}%", ha='center', fontsize=9, weight='bold')
 ax.text((-0.6), y_box + 0.16, 'First-order', ha='center', fontsize=10, color='#FF6666', weight='bold')
 
+
+# --- Dynamic Total-Order Radius Calculation ---
+# Scale the max and min values using the exact same bounds as the nodes (0.01 to 0.1)
+r_st_max = scale_value(max_st, min_st, max_st, 0.01, 0.08)
+r_st_min = scale_value(min_st, min_st, max_st, 0.01, 0.08)
+
 # Total Order Legend Elements
-ax.add_patch(plt.Circle((-0.1, y_box), 0.07, color='black', zorder=2))
-ax.add_patch(plt.Circle((0.1, y_box), 0.025, color='black', zorder=2))
+ax.add_patch(plt.Circle((-0.1, y_box), r_st_max, color='black', zorder=2))
+ax.add_patch(plt.Circle((0.1, y_box), r_st_min, color='black', zorder=2))
 ax.text((-0.1), y_box + 0.09, f"{round(100*max_st)}%", ha='center', fontsize=9, weight='bold')
 ax.text((0.1), y_box + 0.09, f"{round(100*min_st)}%", ha='center', fontsize=9, weight='bold')
 ax.text((0.0), y_box + 0.16, 'Total-order', ha='center', fontsize=10, color='black', weight='bold')
+
 
 # Second Order Interaction Line Weight Elements
 ax.plot([0.45, 0.55], [y_box, y_box], color='darkblue', linewidth=5.0)
@@ -216,5 +230,5 @@ ax.text(0.70, y_box + 0.09, f"{round(100*min_s2)}%", ha='center', fontsize=9, we
 ax.text(0.60, y_box + 0.16, 'Second-order', ha='center', fontsize=10, color='darkblue', weight='bold')
 
 # Save Plot
-plt.savefig('S29_SA_RadialPlot_mostlikely_16.png', dpi=300, bbox_inches='tight')
-print("Radial plot successfully updated and saved as 'S29_SA_RadialPlot_mostlikely_16.png'")
+plt.savefig('sensitivity_mostlikely_tc0_filt.png', dpi=300, bbox_inches='tight')
+print("Radial plot successfully updated and saved as 'sensitivity_mostlikely_tc0_filt.png'")

@@ -522,7 +522,7 @@ def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
     b1 = 0.02
-    b1_std = 0.008
+    b1_std = b1*0.3
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
     beta_1 = rng.normal(loc=b1, scale=b1_std, size=nsow)
@@ -530,8 +530,8 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.001
-    b2_std = 0.001
+    b2 = 0.003
+    b2_std = b2*0.3
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
     coeffs = np.column_stack((beta_1, beta_2))
@@ -543,7 +543,7 @@ def coefficient_unc(nsow):
 
 # Set parameters for convergence testing
 delta_h_seq = np.array([0,3,9,14])
-nsow_values = [500000]
+nsow_values = [100, 1000, 10000, 100000, 500000]
 iterations = 10
 yr_elev = 0     # What year the house is elevated
 

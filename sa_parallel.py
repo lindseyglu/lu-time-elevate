@@ -3,31 +3,21 @@
 Filename: sensitivity.py
 Author: Lindsey Lu
 Created: 2026-05-14
-Version: 2.1
+Version: 2.0
 Description: Conducts Sobol sensitivity analysis for elevation at 
              year 0 with the included uncertainties of evolving
-             house value and GEV coefficients. Uses SALib and joblib.
+             house value and GEV coefficients. Uses SAlib and joblib.
 """
 
 # import libraries
 import pandas as pd
 import numpy as np
-from scipy.stats import genextreme
 from scipy.stats import weibull_min
-from scipy.stats import uniform
-from scipy.stats import qmc             # for Latin Hypercube Sampling
 from scipy.stats import gaussian_kde
-import matplotlib
-matplotlib.use('Agg')                   # Use the 'Agg' backend to avoid the Qt/DBus error while plotting
-import matplotlib.pyplot as plt
-import seaborn as sns
 import time
 from SALib.sample import sobol as sobol_sample
 from SALib.analyze import sobol as sobol_analyze
-import networkx as nx
-
-# --- NEW IMPORT ---
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, cpu_count
 
 # For calculating runtime
 start = time.time()
@@ -48,6 +38,10 @@ disc_rate = np.exp(-1 * (0.04 * dr_i))
 bfe = 34.7              # generated in the R code
 init_elev = bfe + del_elev  # Initial house elev
 
+# Heightening strategy and year of elevation for evaluation
+dh = 14
+yr = 0
+
 # Set depth-damage function (HAZUS)
 depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
@@ -59,10 +53,12 @@ sigma_chain = pd.read_csv('sigma_chain.csv').values.flatten()
 xi_chain = pd.read_csv('xi_chain.csv').values.flatten()
 
 # Sample the following parameters in Zarekarizi et al. (2020) "most-likely scenario"
+# mu, sigma, and xi are sampled using Gaussian Kernel Density Estimate (KDE)
 mu_kde = gaussian_kde(mu_chain, bw_method='silverman')
 sigma_kde = gaussian_kde(sigma_chain, bw_method='silverman')
 xi_kde = gaussian_kde(xi_chain, bw_method='silverman')
 
+# Problem definition
 problem = {
     'num_vars': 9,
     'names': ['mu_u', 'sigma_u', 'xi_u', 'dr_u', 'lt_u', 'dd_err', 'hv_rate', 'b1', 'b2'],
@@ -73,37 +69,43 @@ problem = {
                [0, 1],
                [-30, 30],
                [-0.025, 0.095],
-               [0, 0.06],
-               [0.001, 0.0139]]
+               [0, 0.03],
+               [0, 0.005]]
 }
 
 # Generates N*(2D+2) samples where N=32768 -> 655,360 rows
-param_u = sobol_sample.sample(problem, 65536)
+param_u = sobol_sample.sample(problem, 32768)
 
 # Transform parameters
 def transform_parameters(matrix_u, mu_kde, sigma_kde, xi_kde):
     physical_matrix = np.empty_like(matrix_u)
     physical_matrix[:, 5:9] = matrix_u[:, 5:9]
+    
     pool_size = 500000
     physical_matrix[:, 0] = np.percentile(mu_kde.resample(pool_size), matrix_u[:, 0] * 100)
     physical_matrix[:, 1] = np.percentile(sigma_kde.resample(pool_size), matrix_u[:, 1] * 100)
     physical_matrix[:, 2] = np.percentile(xi_kde.resample(pool_size), matrix_u[:, 2] * 100)
+
     continuous_dr = 0.5 + (matrix_u[:, 3] * 10000.0)
     physical_matrix[:, 3] = np.round(continuous_dr).astype(int)
+
     physical_matrix[:, 4] = weibull_min.ppf(matrix_u[:, 4], c=2.8, scale=73.5)
     return physical_matrix
 
 # Get true parameters
 param_values = transform_parameters(param_u, mu_kde, sigma_kde, xi_kde)
 
+# GEV calculation helper
 def fast_gev_cdf(x, c, loc, scale):
     z = (x - loc) / scale
     inner = 1 + c * z
     return np.exp(-np.power(np.maximum(inner, 1e-10), -1/c))
 
+# Calculate lifetime expected damages
 def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_rate, mu, sigma, xi, DD_Depth, DD_Damage, yr_elev):
-    curr_elev = init_elev + delta_h
+    curr_elev = init_elev + delta_h 
     damage_vals = (DD_Damage[:, np.newaxis]/100) * struc_value[np.newaxis, :]
+
     crit_depths_elev = DD_Depth + curr_elev              
     crit_depths_init = DD_Depth + init_elev              
 
@@ -138,6 +140,26 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
 
     return exp_dam
 
+# Fixed construction cost function (properly indexed for 1D slices and uses global sqft)
+def construction_cost(delta_h, yr_elev, disc_rate, house_sqft):
+    base_cost = 10000 + 300 + 470 + 4300 + 2175 + 3500
+    Hs = np.array([3, 5, 8.5, 12, 14])
+    Rates = np.array([80.36, 82.5, 86.25, 103.75, 113.75])
+
+    if 3 <= delta_h <= 14:
+        rate = np.interp(delta_h, Hs, Rates)
+    else:     
+        rate = 0
+  
+    raise_cost = base_cost + rate * house_sqft
+    if delta_h == 0: 
+        return 0.0
+    
+    infl = (1 + 0.03) ** yr_elev
+    dr = disc_rate[yr_elev]  # Indexes the correct float element from 1D array
+    return raise_cost * infl * dr
+
+# Generate discount rate trajectories
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
     d = np.log(np.array(obs_discount)[:, 1])
     n_cols = life_span + 1
@@ -203,51 +225,65 @@ def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
 obs_disc = pd.read_csv('discount.csv')
 dr_trajectories = discount_rate_unc(obs_disc, 10000, life_span=200)
 
-
-# --- NEW WORKER FUNCTION FOR PARALLELIZATION ---
-def evaluate_single_sow(X, dr_trajectories, struc_value, init_elev, depth, damage_fac):
-    """Executes a single simulation run for one parameter set."""
-    mu, sigma, xi, dr_float, lt, dd, hv_rate, b1, b2 = X
-    dr_i = int(dr_float)
-
-    # Pull discount rate trajectory
-    disc_rate = dr_trajectories[dr_i-1]
-
-    # Adjust mu and sigma by b1 and b2 respectively
+# --- Define the batch processing job function for Joblib ---
+def process_batch(batch_indices, param_values_chunk, struc_value, init_elev, dh, depth, damage_fac, yr, dr_trajectories, sqft):
+    local_Y = np.zeros(len(batch_indices))
     t = np.arange(201)
-    mu_t = mu + b1*t
-    sigma_t = np.exp(np.log(sigma) + b2*t)
+    
+    for local_idx, X in enumerate(param_values_chunk):
+        mu, sigma, xi, dr_float, lt, dd, hv_rate, b1, b2 = X
+        dr_i = int(dr_float)
 
-    # Adjust struc_value to account for hv_rate
-    house_value = struc_value * (1 + hv_rate*t)
+        disc_rate = dr_trajectories[dr_i-1]
 
-    # Calculate damage factors, adjusted for the sampled error
-    damage_adj = damage_fac + damage_fac*(dd/100)
-    damage_adj = np.clip(damage_adj, 0, 100)    
+        mu_t = mu + b1*t
+        sigma_t = np.exp(np.log(sigma) + b2*t)
+        house_value = struc_value * (1 + hv_rate*t)
 
-    return lifetime_expected_damages(
-        house_value, init_elev, 0, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, 0
-    )
+        damage_adj = damage_fac + damage_fac*(dd/100)
+        damage_adj = np.clip(damage_adj, 0, 100)    
 
+        led = lifetime_expected_damages(house_value, init_elev, dh, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, yr)
+        cc = construction_cost(dh, yr, disc_rate, sqft)
 
-# --- EXECUTE PARALLEL PROCESSING ---
-print(f"Starting parallel processing of {param_values.shape[0]} SOW samples...")
+        local_Y[local_idx] = led + cc
+        
+    return batch_indices, local_Y
 
-# n_jobs=-1 automatically utilizes all available CPU cores.
-# 'loky' backend is chosen for robust multi-process management.
-Y_list = Parallel(n_jobs=45, backend='loky', verbose=10)(
-    delayed(evaluate_single_sow)(X, dr_trajectories, struc_value, init_elev, depth, damage_fac)
-    for X in param_values
+# --- Parallel Processing Setup ---
+# Determine usable CPUs (leaves 1 core free)
+n_jobs = max(1, cpu_count() - 1)
+# Create array splits to chunk workload into large pieces
+chunks = np.array_split(np.arange(param_values.shape[0]), n_jobs)
+
+print(f"Starting parallel execution of model across {n_jobs} cores...")
+
+results = Parallel(n_jobs=n_jobs, backend='loky')(
+    delayed(process_batch)(
+        chunk_indices, 
+        param_values[chunk_indices], 
+        struc_value, 
+        init_elev, 
+        dh, 
+        depth, 
+        damage_fac, 
+        yr, 
+        dr_trajectories,
+        sqft
+    ) for chunk_indices in chunks
 )
 
-# Convert output back to flat numpy array for SALib
-Y = np.array(Y_list)
+# Allocate master matrix and re-stich calculations back together 
+Y = np.zeros([param_values.shape[0]])
+for chunk_indices, local_Y in results:
+    Y[chunk_indices] = local_Y
 
+print("Model execution completed. Running Sobol Analysis...")
 
 # Perform analysis
 Si = sobol_analyze.analyze(problem, Y)
 
-# 1. Save Main 1D Effects (S1 & ST)
+# Save as csv - Separate Files for Main and Interacting Effects
 df_main = pd.DataFrame({
     'Parameter': problem['names'],
     'S1': Si['S1'], 
@@ -255,9 +291,8 @@ df_main = pd.DataFrame({
     'ST': Si['ST'], 
     'ST_conf': Si['ST_conf']
 })
-df_main.to_csv('sobol_main_effects.csv', index=False)
+df_main.to_csv(f'sobol_main_effects_tc{dh}.csv', index=False)
 
-# 2. Flatten and Save Second-Order Interactions (S2 Matrix pairs)
 if 'S2' in Si and Si['S2'] is not None:
     s2_rows = []
     p_names = problem['names']
@@ -273,8 +308,8 @@ if 'S2' in Si and Si['S2'] is not None:
             })
             
     df_s2 = pd.DataFrame(s2_rows).dropna(subset=['S2'])
-    df_s2.to_csv('sobol_second_order_interactions.csv', index=False)
-    print("Successfully saved 'sobol_main_effects.csv' and 'sobol_second_order_interactions.csv'")
+    df_s2.to_csv(f'sobol_second_order_interactions_tc{dh}.csv', index=False)
+    print(f"Successfully saved 'sobol_main_effects_tc{dh}.csv' and 'sobol_second_order_interactions_tc{dh}.csv'")
 else:
     print("Main effects saved. No second-order indices found to export.")
 

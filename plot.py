@@ -10,6 +10,8 @@ Description: Plot the GEV function after 30 years.
 # import libraries
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.ticker as ticker
 import seaborn as sns
 import numpy as np
 from scipy.stats import genextreme
@@ -51,55 +53,74 @@ from scipy.stats import genextreme
 # plt.savefig(f'height_totcost')
 
 ## ------------------------------------------------------------------
-## PLOT DIFFERENT SCENARIOS
+## PLOT DIFFERENT EVOLVING PARAMETERS
 ## ------------------------------------------------------------------
 
-# # 1. Load and merge the data
-# # File definitions with descriptive labels
-# # NOTE: need to change/filter for the just year 0 in df1
-# files = {
-#     'data/objectives.csv': 'No time-indexed uncertainties',
-#     'data/objectives_evGEV.csv': 'Time-indexed GEV parameters',
-#     'data/objectives_evHV.csv': 'Time-indexed house value',
-#     'data/objectives_multyrs_5e6.csv': 'Time-indexed house value and GEV parameters'
-# }
-# num_scen = 4
+# 1. Load and merge the data
+# File definitions with descriptive labels
+# NOTE: need to change/filter for the just year 0 in df1
+files = {
+    'data/objectives_stat.csv': 'Stationary GEV, static house value',
+    'data/objectives_evGEV_coeff2.csv': 'Nonstationary GEV, static house value',
+    'data/objectives_evHVonly.csv': 'Stationary GEV, increasing house value',
+    'data/objectives_coeff2.csv': 'Nonstationary GEV, increasing house value'
+}
+num_scen = 4
 
-# dfs = []
-# for f, label in files.items():
-#     df = pd.read_csv(f)
-#     df['Scenario'] = label
-#     if label == 'Time-indexed house value and GEV parameters':
-#         filtered_df = df[df['yr_elev'] == 0]    # ensure only elevation @now is considered
-#     elif label == 'Time-indexed GEV parameters':
-#         filtered_df = df[df['yr_elev'] == 0]    # ensure only elevation @now is considered
-#     else:
-#         filtered_df = df
-#     dfs.append(filtered_df)
+dfs = []
+sorted_dfs = []
+for f, label in files.items():
+    df = pd.read_csv(f)
+    df['Scenario'] = label
+    filtered_df = df[df['yr_elev'] == 0]    # ensure only elevation @now is considered
+    # NOTE: insert sorted dfs here
+    sorted_df = filtered_df.sort_values(by=['total_cost'], ascending=[True])
+    dfs.append(filtered_df)
+    sorted_dfs.append(sorted_df)
 
-# df_all = pd.concat(dfs)
+df_all = pd.concat(dfs)
+df_all['total_cost_M'] = df_all['total_cost']/1e6
 
-# # 2. Filter: dh == 0 OR dh >= 3
-# df_filtered = df_all[(df_all['dh'] == 0) | (df_all['dh'] >= 3)].copy()
-# df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
+# 2. Filter: dh == 0 OR dh >= 3
+df_filtered = df_all[(df_all['dh'] >= 3)].copy()
+df_h0 = df_all[(df_all['dh'] == 0)].copy()
 
-# # 3. Define the visual distinction for the baseline (dh=0)
-# df_filtered['Point Type'] = np.where(df_filtered['dh'] == 0, 'Baseline (dh=0)', 'Elevated (dh>=3)')
+# --- GET MIN COST ---
+# 1. Concatenate the list of sorted dataframes into ONE big DataFrame
+df_all_sorted = pd.concat(sorted_dfs)
 
-# sns.set_theme(style="whitegrid")
-# palette = sns.color_palette("husl", num_scen)
+# 2. Scale the cost for the minimum points so it matches your Y-axis scale
+df_all_sorted['total_cost_M'] = df_all_sorted['total_cost'] / 1e6
 
-# # GRAPH 1: dh vs total_cost
-# plt.figure(figsize=(10, 6))
-# sns.scatterplot(data=df_filtered, x='dh', y='total_cost', hue='Scenario', 
-#                 style='Point Type', markers={'Baseline (dh=0)': 'X', 'Elevated (dh>=3)': 'o'}, 
-#                 s=100, palette=palette)
-# plt.title('Total Cost vs Heightening Strategy')
-# plt.xlabel('Elevation Height [ft]')
-# plt.ylabel('Total Cost [$]')
-# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-# plt.tight_layout()
-# plt.savefig('figures/total_cost_vs_dh_comp.png')
+# 3. Now drop duplicates safely on the combined DataFrame
+df_min_costs = df_all_sorted.drop_duplicates(subset=['Scenario'], keep='first')
+# --------------------
+
+sns.set_theme(style="ticks")
+palette = ['k', '#DC267F', '#FE6100', '#785EF0']
+
+# GRAPH 1: dh vs total_cost
+plt.figure(figsize=(8, 6))
+sns.lineplot(data=df_filtered, x='dh', y='total_cost_M', hue='Scenario', 
+             palette=palette, linewidth=1.5)
+rect = patches.Rectangle(xy=(0,0), width=3, height=10, facecolor='lightgrey')
+plt.gca().add_patch(rect)
+sns.scatterplot(data=df_h0, x='dh', y='total_cost_M', hue='Scenario',
+                palette=palette, legend=False, clip_on=False, zorder=10)
+sns.scatterplot(data=df_min_costs, x='dh', y='total_cost_M', hue='Scenario',
+                palette=palette, legend=False, clip_on=False, zorder=10, 
+                marker='s', s=60)
+plt.scatter([], [], color='black', label='Minimum', marker='s')
+plt.gca().yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:g}M'))
+plt.legend(fontsize=14)
+plt.xlim(0,14)
+plt.ylim(0,5.5)
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+plt.xlabel('Elevation Height [ft]', fontsize=16)
+plt.ylabel('Total Cost [$]', fontsize=16)
+plt.tight_layout()
+plt.savefig('figures/total_cost_vs_dh_comp.png', dpi=300)
 
 # # GRAPH 2: upfront_cost vs reliability
 # plt.figure(figsize=(10, 6))
@@ -129,48 +150,59 @@ from scipy.stats import genextreme
 ## PLOT GEV FUNCTION
 ## ------------------------------------------------------------------
 
-t1 = 30
-t2 = 100
-b1 = 0.03
-b2 = 0.002
+# t1 = 50
+# t2 = 100
+# b1 = np.array([0.01, 0.02, 0.03])
+# b2 = np.array([0.001, 0.003, 0.005])
 
-# Define parameters
-mus = pd.read_csv('mu_chain.csv')
-loc = np.mean(mus)
-loc_30 = loc + t1*b1
-loc_100 = loc + t2*b1
+# # Define parameters
+# mus = pd.read_csv('mu_chain.csv')
+# loc = np.mean(mus)
+# loc_30 = loc + t1*b1
+# loc_100 = loc + t2*b1
 
-sigmas = pd.read_csv('sigma_chain.csv')
-scale = np.mean(sigmas)
-scale_30 = np.exp(np.log(scale) + t1*b2)
-scale_100 = np.exp(np.log(scale) + t2*b2)
+# sigmas = pd.read_csv('sigma_chain.csv')
+# scale = np.mean(sigmas)
+# scale_30 = np.exp(np.log(scale) + t1*b2)
+# scale_100 = np.exp(np.log(scale) + t2*b2)
 
-xis = pd.read_csv('xi_chain.csv')
-shape = -np.mean(xis)
+# xis = pd.read_csv('xi_chain.csv')
+# shape = -np.mean(xis)
 
-# Generate data points
-x = np.linspace(genextreme.ppf(0.01, shape, loc, scale),
-                genextreme.ppf(0.99, shape, loc, scale), 100)
-x_30 = np.linspace(genextreme.ppf(0.01, shape, loc_30, scale_30),
-                   genextreme.ppf(0.99, shape, loc_30, scale_30), 100)
-x_100 = np.linspace(genextreme.ppf(0.01, shape, loc_100, scale_100),
-                    genextreme.ppf(0.99, shape, loc_100, scale_100), 100)
+# # Generate data points
+# x = np.linspace(genextreme.ppf(0.01, shape, loc, scale),
+#                 genextreme.ppf(0.99, shape, loc, scale), 100)
+# x_30 = np.linspace(genextreme.ppf(0.01, shape, loc_30, scale_30),
+#                    genextreme.ppf(0.99, shape, loc_30, scale_30), 100)
 
-# Calculate PDF and CDF
-pdf = genextreme.pdf(x, shape, loc, scale)
-pdf_30 = genextreme.pdf(x, shape, loc_30, scale_30)
-pdf_100 = genextreme.pdf(x, shape, loc_100, scale_100)
+# print(x_30.shape)
+# # x_100 = np.linspace(genextreme.ppf(0.01, shape, loc_100, scale_100),
+# #                     genextreme.ppf(0.99, shape, loc_100, scale_100), 100)
 
-# Create the plot
-fig, ax1 = plt.subplots()
+# # Calculate PDF and CDF
+# pdf = genextreme.pdf(x, shape, loc, scale)
+# # pdf_30 = genextreme.pdf(x, shape, loc_30, scale_30)
+# # pdf_100 = genextreme.pdf(x, shape, loc_100, scale_100)
 
-ax1.plot(x, pdf, 'r-', label='GEV initial')
-ax1.plot(x_30, pdf_30, 'b-', label=f'GEV after {t1} years')
-ax1.plot(x_100, pdf_100, 'g-', label=f'GEV after {t2} years')
-ax1.set_ylabel('Density')
-ax1.set_xlabel('Annual Maximum Water Level (ft)')
-ax1.tick_params(axis='y')
+# # Create the plot
+# fig, ax1 = plt.subplots()
 
-plt.legend()
-plt.title(f'GEV Distribution Over Time')
-plt.show()
+# # Plot baseline
+# ax1.plot(x, pdf, 'k-', label='Stationary GEV')
+
+# # Loop through each scenario (0, 1, 2) to fix indexing dynamically
+# colors = ['#648FFF', '#DC267F', '#FFB000']
+# for i in range(len(b1)):
+#     # Calculate the PDF dynamically for column i
+#     pdf_scenario = genextreme.pdf(x_30[:, i], shape, loc_30[i], scale_30[i])
+    
+#     # Plot column i of x_30 against its corresponding pdf
+#     ax1.plot(x_30[:, i], pdf_scenario, color=colors[i], linestyle='-',
+#              label=rf'$\beta_1$={b1[i]}, $\beta_2$={b2[i]}')
+
+# ax1.set_ylabel('Density')
+# ax1.set_xlabel('Annual Maximum Water Level (ft)')
+# ax1.legend()
+# ax1.tick_params(axis='y')
+
+# plt.savefig('figures/nonstationary_gev.png', dpi=300)

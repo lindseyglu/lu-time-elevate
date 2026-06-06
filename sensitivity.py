@@ -45,6 +45,10 @@ disc_rate = np.exp(-1 * (0.04 * dr_i))
 bfe = 34.7              # generated in the R code
 init_elev = bfe + del_elev  # Initial house elev
 
+# Heightening strategy and year of elevation for evaluation
+dh = 14
+yr = 0
+
 # Set depth-damage function (HAZUS)
 depth = np.array([-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24])  # defined relative the FFE
 damage_fac = np.array([0,0,4,8,12,15,20,23,28,33,37,43,48,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81])
@@ -79,8 +83,8 @@ problem = {
                [0, 1],
                [-30, 30],
                [-0.025, 0.095],
-               [0, 0.06],
-               [0, 0.0139]]
+               [0, 0.03],
+               [0, 0.005]]
 }
 
 # Generates N*(2D+2) samples where N=32768
@@ -199,6 +203,25 @@ def lifetime_expected_damages(struc_value, init_elev, delta_h, life_span, disc_r
     exp_dam = np.sum(disc_ead * lifespan_mask)
 
     return exp_dam
+
+# Calculate upfront cost (construction cost)
+def construction_cost(delta_h, sqft, yr_elev, disc_rate):
+    base_cost = 10000 + 300 + 470 + 4300 + 2175 + 3500
+    Hs = np.array([3, 5, 8.5, 12, 14])
+    Rates = np.array([80.36, 82.5, 86.25, 103.75, 113.75])
+
+    if 3 <= delta_h <= 14:
+        rate = np.interp(delta_h, Hs, Rates)
+    else:     
+        rate = 0
+  
+    raise_cost = base_cost + rate * sqft
+    if delta_h == 0: 
+        return np.zeros(len(disc_rate))
+    
+    infl = (1 + 0.03) ** yr_elev
+    dr = disc_rate[:, yr_elev]
+    return raise_cost * infl * dr
 
 # Generate discount rate
 def discount_rate_unc(obs_discount, nsow, dr_func="deep", life_span=200):
@@ -320,12 +343,16 @@ for i, X in enumerate(param_values):
     damage_adj = damage_fac + damage_fac*(dd/100)
     damage_adj = np.clip(damage_adj, 0, 100)    # Ensure that damage is still between 0 and 100
 
-    Y[i] = lifetime_expected_damages(house_value, init_elev, 0, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, 0)
+    # Calculate objectives
+    led = lifetime_expected_damages(house_value, init_elev, dh, lt, disc_rate, mu_t, sigma_t, xi, depth, damage_adj, yr)
+    cc = construction_cost(dh, yr, disc_rate)
+
+    # Total cost is damages + construction cost
+    Y[i] = led + cc
 
 # Perform analysis
 Si = sobol_analyze.analyze(problem, Y)
 
-# Save as csv
 # Save as csv - Separate Files for Main and Interacting Effects
 
 # 1. Save Main 1D Effects (S1 & ST)
@@ -336,7 +363,7 @@ df_main = pd.DataFrame({
     'ST': Si['ST'], 
     'ST_conf': Si['ST_conf']
 })
-df_main.to_csv('sobol_main_effects.csv', index=False)
+df_main.to_csv('sobol_main_effects_tc.csv', index=False)
 
 # 2. Flatten and Save Second-Order Interactions (S2 Matrix pairs)
 if 'S2' in Si and Si['S2'] is not None:
@@ -355,8 +382,8 @@ if 'S2' in Si and Si['S2'] is not None:
             })
             
     df_s2 = pd.DataFrame(s2_rows).dropna(subset=['S2'])
-    df_s2.to_csv('sobol_second_order_interactions.csv', index=False)
-    print("Successfully saved 'sobol_main_effects.csv' and 'sobol_second_order_interactions.csv'")
+    df_s2.to_csv('sobol_second_order_interactions_tc.csv', index=False)
+    print("Successfully saved 'sobol_main_effects_tc.csv' and 'sobol_second_order_interactions_tc.csv'")
 else:
     print("Main effects saved. No second-order indices found to export.")
 

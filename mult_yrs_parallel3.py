@@ -291,7 +291,7 @@ def house_value_unc(init_value, nsow, delta_h=0, life_span=200, elev_year=0):
 def coefficient_unc(nsow):
     # beta_1 is the coefficient value for mu in the GEV function
     # where mu(t) = mu_0 + beta_1*t
-    b1 = 0.005
+    b1 = 0.02
     b1_std = 0.3*b1
     # Could use a uniform distribution if there is deep uncertainty
     # Sweet et al. 2022 estimate 0.40m [0.31,0.49] of sea level rise from 2000 to 2050 = 0.0262 ft/yr
@@ -300,7 +300,7 @@ def coefficient_unc(nsow):
     # beta_2 is the coefficient value for sigma in the GEV function
     # where sigma(t) = exp(ln(sigma_0) + beta_2*t)
     # Normal: (0.001,0.001)
-    b2 = 0.0005
+    b2 = 0.003
     b2_std = 0.3*b2
     beta_2 = rng.normal(loc=b2, scale=b2_std, size=nsow)
 
@@ -367,8 +367,8 @@ def process_single_chunk(start_idx, end_idx, delta_h_seq, yr_elev_seq, init_elev
 ## ------------------------------------------------------------------
 
 if __name__ == '__main__':
-    delta_h_seq = np.linspace(start=0, stop=20, num=30)
-    yr_elev_seq = np.array([0, 10, 20])  
+    delta_h_seq = [14]
+    yr_elev_seq = np.arange(start=0, stop=21)  
 
     nsow = 500000
     num_strat = len(delta_h_seq)
@@ -469,8 +469,8 @@ if __name__ == '__main__':
             })
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv('data/objectives_coeff0.csv', index=False)
-    if verbose: print("\nResults saved to 'objectives_coeff0.csv'")
+    df_results.to_csv('data/objectives_contyrs_coeff2.csv', index=False)
+    if verbose: print("\nResults saved to 'objectives_contyrs_coeff2.csv'")
 
     end = time.time()
     print(f"Runtime: {end - start} seconds")
