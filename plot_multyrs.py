@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Filename: plot.py
+Filename: plot_multyrs.py
 Author: Lindsey Lu
 Created: 2026-04-08
 Version: 2.0
 Description: Plot Pareto fronts and single objective optimization 
              for home elevation height and implementation timing strategies
-             using unified multi-dimensional simulation outputs.
+             across multiple years.
 """
 
 # import libraries

@@ -230,5 +230,5 @@ ax.text(0.70, y_box + 0.09, f"{round(100*min_s2)}%", ha='center', fontsize=9, we
 ax.text(0.60, y_box + 0.16, 'Second-order', ha='center', fontsize=10, color='darkblue', weight='bold')
 
 # Save Plot
-plt.savefig('sensitivity_mostlikely_tc0_filt.png', dpi=300, bbox_inches='tight')
-print("Radial plot successfully updated and saved as 'sensitivity_mostlikely_tc0_filt.png'")
+plt.savefig('sensitivity_mostlikely_tc0.png', dpi=300, bbox_inches='tight')
+print("Radial plot successfully updated and saved as 'sensitivity_mostlikely_tc0.png'")

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Filename: convergence_parallel.py
+Author: Lindsey Lu
+Description: Runs convergence testing parallelized.
 """
 
 # import libraries

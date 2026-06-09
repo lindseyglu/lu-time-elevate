@@ -50,18 +50,18 @@ def plot_convergence(csv_filepath, heights_to_plot=[0, 3, 9, 14]):
             axes[idx].grid(True, linestyle='--', alpha=0.7)
             
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(f'convergence_evGEV_evHV_5e6_{height}.png', dpi=300)
+        plt.savefig(f'figures/convergence_evGEV_evHV_5e6_{height}.png', dpi=300)
         plt.close(fig) # Close the figure to free up memory
 
 # Run the plotting function using the saved CSV
-plot_convergence('convergence_evHV_evGEV_5e6.csv')
+plot_convergence('data/convergence_evHV_evGEV_5e6.csv')
 
 # ------------------------------------------------------------------
 # CALCULATE & EXPORT SUMMARY STATISTICS (STD & % of MEAN)
 # ------------------------------------------------------------------
 print("\nCalculating summary statistics...")
 
-df_convergence = pd.read_csv('convergence_evHV_evGEV_5e6.csv')
+df_convergence = pd.read_csv('data/convergence_evHV_evGEV_5e6.csv')
 
 # Group by elevation height and sample size
 stats_df = df_convergence.groupby(['dh', 'nsow']).agg(
@@ -87,6 +87,6 @@ stats_df = stats_df[[
 ]]
 
 # Save to CSV
-stats_csv_name = 'convergence_summary_stats.csv'
+stats_csv_name = 'data/convergence_summary_stats.csv'
 stats_df.to_csv(stats_csv_name, index=False)
 print(f"Summary statistics saved to '{stats_csv_name}'")

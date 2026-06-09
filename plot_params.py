@@ -4,9 +4,10 @@ Filename: plot_params.py
 Author: Lindsey Lu
 Created: 2026-06-03
 Version: 1.0
-Description: Plot the weibull function representing house value.
+Description: Plot the weibull function representing house lifetime.
              Plot depth-damage functions.
              Plot CLARA upfront cost.
+             Plot GEV function.
 """
 
 # import libraries
@@ -18,7 +19,9 @@ import seaborn as sns
 import numpy as np
 from scipy.stats import weibull_min
 
-# HOUSE LIFETIME
+# ------------------------------------------------------------------
+# PLOT HOUSE LIFETIME
+# ------------------------------------------------------------------
 yrs = np.linspace(start=0, stop=200, num=400)
 pdf = weibull_min.pdf(yrs, c=2.8, scale=73.5)
 
@@ -40,7 +43,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# DEPTH-DAMAGE FUNCTION
+# ------------------------------------------------------------------
+# PLOT DEPTH-DAMAGE FUNCTION
+# ------------------------------------------------------------------
 # Define European Commission's depth-damage function
 depth1 = np.array([0, 1.64, 3.28, 4.92, 6.56, 9.84, 13.12, 16.40])
 damage_fac1 = np.array([0.20, 0.44, 0.58, 0.68, 0.78, 0.85, 0.92, 0.96])*100
@@ -78,7 +83,9 @@ ax1.tick_params(axis='y')
 plt.tight_layout()
 plt.savefig('figures/depth_damage.png', dpi=300)
 
-# CLARA UPFRONT COST
+# ------------------------------------------------------------------
+# PLOT CLARA UPFRONT COST
+# ------------------------------------------------------------------
 base_cost = 10000 + 300 + 470 + 4300 + 2175 + 3500
 Hs = np.array([3, 5, 8.5, 12, 14])
 Rates = np.array([80.36, 82.5, 86.25, 103.75, 113.75])
@@ -102,3 +109,64 @@ ax1.tick_params(axis='y')
 
 plt.tight_layout()
 plt.savefig('figures/upfront_cost.png', dpi=300)
+
+# ------------------------------------------------------------------
+# PLOT GEV FUNCTION
+# ------------------------------------------------------------------
+
+t1 = 50
+t2 = 100
+b1 = np.array([0.01, 0.02, 0.03])
+b2 = np.array([0.001, 0.003, 0.005])
+
+# Define parameters
+mus = pd.read_csv('mu_chain.csv')
+loc = np.mean(mus)
+loc_30 = loc + t1*b1
+loc_100 = loc + t2*b1
+
+sigmas = pd.read_csv('sigma_chain.csv')
+scale = np.mean(sigmas)
+scale_30 = np.exp(np.log(scale) + t1*b2)
+scale_100 = np.exp(np.log(scale) + t2*b2)
+
+xis = pd.read_csv('xi_chain.csv')
+shape = -np.mean(xis)
+
+# Generate data points
+x = np.linspace(genextreme.ppf(0.01, shape, loc, scale),
+                genextreme.ppf(0.99, shape, loc, scale), 100)
+x_30 = np.linspace(genextreme.ppf(0.01, shape, loc_30, scale_30),
+                   genextreme.ppf(0.99, shape, loc_30, scale_30), 100)
+
+print(x_30.shape)
+# x_100 = np.linspace(genextreme.ppf(0.01, shape, loc_100, scale_100),
+#                     genextreme.ppf(0.99, shape, loc_100, scale_100), 100)
+
+# Calculate PDF and CDF
+pdf = genextreme.pdf(x, shape, loc, scale)
+# pdf_30 = genextreme.pdf(x, shape, loc_30, scale_30)
+# pdf_100 = genextreme.pdf(x, shape, loc_100, scale_100)
+
+# Create the plot
+fig, ax1 = plt.subplots()
+
+# Plot baseline
+ax1.plot(x, pdf, 'k-', label='Stationary GEV')
+
+# Loop through each scenario (0, 1, 2) to fix indexing dynamically
+colors = ['#648FFF', '#DC267F', '#FFB000']
+for i in range(len(b1)):
+    # Calculate the PDF dynamically for column i
+    pdf_scenario = genextreme.pdf(x_30[:, i], shape, loc_30[i], scale_30[i])
+    
+    # Plot column i of x_30 against its corresponding pdf
+    ax1.plot(x_30[:, i], pdf_scenario, color=colors[i], linestyle='-',
+             label=rf'$\beta_1$={b1[i]}, $\beta_2$={b2[i]}')
+
+ax1.set_ylabel('Density')
+ax1.set_xlabel('Annual Maximum Water Level (ft)')
+ax1.legend()
+ax1.tick_params(axis='y')
+
+plt.savefig('figures/nonstationary_gev.png', dpi=300)
