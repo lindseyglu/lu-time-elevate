@@ -363,10 +363,10 @@ if __name__ == '__main__':
     yr_elev = 0     
 
     # Read in data files
-    obs_discount = pd.read_csv('discount.csv')
-    mu_chain = pd.read_csv('mu_chain.csv').to_numpy().flatten()
-    sigma_chain = pd.read_csv('sigma_chain.csv').to_numpy().flatten()
-    xi_chain = pd.read_csv('xi_chain.csv').to_numpy().flatten()
+    obs_discount = pd.read_csv('inputs/discount.csv')
+    mu_chain = pd.read_csv('inputs/mu_chain.csv').to_numpy().flatten()
+    sigma_chain = pd.read_csv('inputs/sigma_chain.csv').to_numpy().flatten()
+    xi_chain = pd.read_csv('inputs/xi_chain.csv').to_numpy().flatten()
 
     all_convergence_results = []
 
