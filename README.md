@@ -4,7 +4,7 @@ This repository contains the code, data, and figures for the undergraduate honor
 
 ## Project Overview
 
-
+Climate change and socio-economic growth are altering flood risks. One method to mitigate flood risk is through home elevation. Current federal and state house elevation guidance relies on federal flood maps to determine height recommendations and regulations. As for when to elevate, regulations apply for new, substantially damaged, or substantially improved homes. Current literature incorporates uncertainty and multiple objectives, including cost and reliability, to develop elevation recommendations. However, the literature typically treats elevation as an immediate, singular decision. Furthermore, current literature presumes stationary flood hazard and static home values to evaluate home elevation. Through a computational example comparing house elevation at different time steps with nonstationary flood hazard and house value, this work aims to demonstrate how temporal flexibility may improve homeowner decision-making for flood risk mitigation. I consider five uncertainties: nonstationary flood hazard, nonstationary house value, discount rate, house lifetime, and depth-damage function. I examine tradeoffs between four primary objectives: total cost, cost of elevation, benefit-cost ratio, and lifetime reliability. 
 
 ## Repository Structure
 
